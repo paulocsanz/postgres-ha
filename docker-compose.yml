@@ -1,0 +1,161 @@
+version: '3.9'
+
+networks:
+  postgres-ha:
+    driver: bridge
+
+volumes:
+  postgres-1-data:
+  postgres-2-data:
+  postgres-3-data:
+  etcd-1-data:
+  etcd-2-data:
+  etcd-3-data:
+
+services:
+  etcd-1:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: etcd-1
+    networks:
+      - postgres-ha
+    environment:
+      - ETCD_NAME=etcd-1
+      - ETCD_INITIAL_CLUSTER=etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380,etcd-3=http://etcd-3:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=railway-pg-ha
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd-1:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd-1:2380
+      - ETCD_DATA_DIR=/etcd-data
+    volumes:
+      - etcd-1-data:/etcd-data
+
+  etcd-2:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: etcd-2
+    networks:
+      - postgres-ha
+    environment:
+      - ETCD_NAME=etcd-2
+      - ETCD_INITIAL_CLUSTER=etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380,etcd-3=http://etcd-3:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=railway-pg-ha
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd-2:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd-2:2380
+      - ETCD_DATA_DIR=/etcd-data
+    volumes:
+      - etcd-2-data:/etcd-data
+
+  etcd-3:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: etcd-3
+    networks:
+      - postgres-ha
+    environment:
+      - ETCD_NAME=etcd-3
+      - ETCD_INITIAL_CLUSTER=etcd-1=http://etcd-1:2380,etcd-2=http://etcd-2:2380,etcd-3=http://etcd-3:2380
+      - ETCD_INITIAL_CLUSTER_STATE=new
+      - ETCD_INITIAL_CLUSTER_TOKEN=railway-pg-ha
+      - ETCD_LISTEN_CLIENT_URLS=http://0.0.0.0:2379
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd-3:2379
+      - ETCD_LISTEN_PEER_URLS=http://0.0.0.0:2380
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd-3:2380
+      - ETCD_DATA_DIR=/etcd-data
+    volumes:
+      - etcd-3-data:/etcd-data
+
+  postgres-1:
+    build: ./postgres-patroni
+    container_name: postgres-1
+    networks:
+      - postgres-ha
+    environment:
+      - PATRONI_NAME=postgres-1
+      - PATRONI_SCOPE=pg-ha-cluster
+      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - POSTGRES_USER=railway
+      - POSTGRES_PASSWORD=railway
+      - POSTGRES_DB=railway
+      - PATRONI_REPLICATION_PASSWORD=replicator_password
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - postgres-1-data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-1
+      - etcd-2
+      - etcd-3
+
+  postgres-2:
+    build: ./postgres-patroni
+    container_name: postgres-2
+    networks:
+      - postgres-ha
+    environment:
+      - PATRONI_NAME=postgres-2
+      - PATRONI_SCOPE=pg-ha-cluster
+      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - POSTGRES_USER=railway
+      - POSTGRES_PASSWORD=railway
+      - POSTGRES_DB=railway
+      - PATRONI_REPLICATION_PASSWORD=replicator_password
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - postgres-2-data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-1
+      - etcd-2
+      - etcd-3
+
+  postgres-3:
+    build: ./postgres-patroni
+    container_name: postgres-3
+    networks:
+      - postgres-ha
+    environment:
+      - PATRONI_NAME=postgres-3
+      - PATRONI_SCOPE=pg-ha-cluster
+      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - POSTGRES_USER=railway
+      - POSTGRES_PASSWORD=railway
+      - POSTGRES_DB=railway
+      - PATRONI_REPLICATION_PASSWORD=replicator_password
+      - PGDATA=/var/lib/postgresql/data
+    volumes:
+      - postgres-3-data:/var/lib/postgresql/data
+    depends_on:
+      - etcd-1
+      - etcd-2
+      - etcd-3
+
+  pgpool:
+    build: ./pgpool
+    container_name: pgpool
+    networks:
+      - postgres-ha
+    ports:
+      - "5432:5432"
+      - "9999:9999"
+    environment:
+      - POSTGRES_PASSWORD=railway
+      - REPLICATION_PASSWORD=replicator_password
+      - PGPOOL_NUM_INIT_CHILDREN=32
+      - PGPOOL_MAX_POOL=4
+    depends_on:
+      - postgres-1
+      - postgres-2
+      - postgres-3
+
+  failover-watcher:
+    build: ./failover-watcher
+    container_name: failover-watcher
+    networks:
+      - postgres-ha
+    environment:
+      - CHECK_INTERVAL_MS=5000
+    depends_on:
+      - postgres-1
+      - postgres-2
+      - postgres-3

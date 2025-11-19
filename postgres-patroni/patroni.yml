@@ -1,0 +1,74 @@
+scope: ${PATRONI_SCOPE}
+namespace: /service/
+name: ${PATRONI_NAME}
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: ${PATRONI_NAME}.railway.internal:8008
+
+etcd:
+  hosts: ${PATRONI_ETCD_HOSTS}
+
+bootstrap:
+  dcs:
+    ttl: ${PATRONI_TTL:-30}
+    loop_wait: ${PATRONI_LOOP_WAIT:-10}
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+      parameters:
+        wal_level: replica
+        hot_standby: on
+        wal_keep_size: 128MB
+        max_wal_senders: 10
+        max_replication_slots: 10
+        checkpoint_timeout: 30
+        max_connections: 200
+        shared_buffers: 256MB
+        effective_cache_size: 1GB
+        maintenance_work_mem: 64MB
+        wal_buffers: 16MB
+
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+    - locale: en_US.UTF-8
+
+  pg_hba:
+    - local all all trust
+    - host replication ${PATRONI_REPLICATION_USERNAME} 0.0.0.0/0 md5
+    - host all all 0.0.0.0/0 md5
+
+  users:
+    ${PATRONI_SUPERUSER_USERNAME}:
+      password: ${PATRONI_SUPERUSER_PASSWORD}
+      options:
+        - createrole
+        - createdb
+    ${PATRONI_REPLICATION_USERNAME}:
+      password: ${PATRONI_REPLICATION_PASSWORD}
+      options:
+        - replication
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: ${PATRONI_NAME}.railway.internal:5432
+  data_dir: ${POSTGRESQL_DATA_DIR}
+  bin_dir: /usr/local/bin
+  authentication:
+    replication:
+      username: ${PATRONI_REPLICATION_USERNAME}
+      password: ${PATRONI_REPLICATION_PASSWORD}
+    superuser:
+      username: ${PATRONI_SUPERUSER_USERNAME}
+      password: ${PATRONI_SUPERUSER_PASSWORD}
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false

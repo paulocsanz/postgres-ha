@@ -1,0 +1,48 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "/usr/local/bin/etcd"
+restartPolicyType = "always"
+numReplicas = 1
+
+[[deploy.environmentVariables]]
+name = "ETCD_NAME"
+value = "etcd-2"
+
+[[deploy.environmentVariables]]
+name = "ETCD_INITIAL_CLUSTER"
+value = "etcd-1=http://etcd-1.railway.internal:2380,etcd-2=http://etcd-2.railway.internal:2380,etcd-3=http://etcd-3.railway.internal:2380"
+
+[[deploy.environmentVariables]]
+name = "ETCD_INITIAL_CLUSTER_STATE"
+value = "new"
+
+[[deploy.environmentVariables]]
+name = "ETCD_INITIAL_CLUSTER_TOKEN"
+value = "railway-pg-ha"
+
+[[deploy.environmentVariables]]
+name = "ETCD_LISTEN_CLIENT_URLS"
+value = "http://0.0.0.0:2379"
+
+[[deploy.environmentVariables]]
+name = "ETCD_ADVERTISE_CLIENT_URLS"
+value = "http://etcd-2.railway.internal:2379"
+
+[[deploy.environmentVariables]]
+name = "ETCD_LISTEN_PEER_URLS"
+value = "http://0.0.0.0:2380"
+
+[[deploy.environmentVariables]]
+name = "ETCD_INITIAL_ADVERTISE_PEER_URLS"
+value = "http://etcd-2.railway.internal:2380"
+
+[[deploy.environmentVariables]]
+name = "ETCD_DATA_DIR"
+value = "/etcd-data"
+
+[[deploy.environmentVariables]]
+name = "ETCD_ENABLE_V2"
+value = "false"

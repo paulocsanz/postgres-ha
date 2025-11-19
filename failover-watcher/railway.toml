@@ -1,0 +1,8 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node src/index.js"
+restartPolicyType = "always"
+numReplicas = 1
