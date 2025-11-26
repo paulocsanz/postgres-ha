@@ -13,7 +13,7 @@ COPY pool_hba.conf /opt/bitnami/pgpool/conf/pool_hba.conf
 COPY patroni-watcher.sh /usr/local/bin/patroni-watcher.sh
 RUN chmod +x /usr/local/bin/patroni-watcher.sh
 
-# Create wrapper entrypoint to fix missing env var before Bitnami entrypoint runs
+# Create wrapper entrypoint to fix missing env var and start watcher
 COPY <<'EOF' /entrypoint-wrapper.sh
 #!/bin/bash
 set -e
@@ -24,6 +24,17 @@ if [ -z "${PGPOOL_HEALTH_CHECK_PASSWORD}" ] && [ -n "${PGPOOL_POSTGRES_PASSWORD}
   echo "PGPOOL_HEALTH_CHECK_PASSWORD is empty, copying from PGPOOL_POSTGRES_PASSWORD"
   export PGPOOL_HEALTH_CHECK_PASSWORD="${PGPOOL_POSTGRES_PASSWORD}"
 fi
+
+# Start patroni-watcher in background (it will wait for pgpool to be ready)
+/usr/local/bin/patroni-watcher.sh &
+WATCHER_PID=$!
+
+# Trap to kill watcher on exit
+cleanup() {
+  echo "[entrypoint] Shutting down, killing watcher..."
+  kill $WATCHER_PID 2>/dev/null || true
+}
+trap cleanup SIGTERM SIGINT EXIT
 
 # Call original Bitnami entrypoint
 exec /opt/bitnami/scripts/pgpool/entrypoint.sh "$@"
@@ -56,60 +67,10 @@ EOF
 
 RUN chmod +x /docker-entrypoint-initdb.d/01-add-admin-user.sh
 
-USER root
-
-# Create supervisor script to run both pgpool and patroni-watcher
-COPY <<'EOF' /run-with-watcher.sh
-#!/bin/bash
-set -e
-
-# Trap signals to ensure clean shutdown
-cleanup() {
-  echo "[supervisor] Shutting down..."
-  if [ ! -z "$WATCHER_PID" ]; then
-    kill $WATCHER_PID 2>/dev/null || true
-  fi
-  if [ ! -z "$PGPOOL_PID" ]; then
-    kill $PGPOOL_PID 2>/dev/null || true
-  fi
-  exit 0
-}
-trap cleanup SIGTERM SIGINT
-
-# Start pgpool in background
-echo "[supervisor] Starting pgpool..."
-/opt/bitnami/scripts/pgpool/run.sh &
-PGPOOL_PID=$!
-
-# Wait for pgpool to be ready
-echo "[supervisor] Waiting for pgpool to be ready..."
-for i in {1..30}; do
-  if pgpool -h localhost -p 5432 -c "SELECT 1" 2>/dev/null; then
-    echo "[supervisor] Pgpool is ready"
-    break
-  fi
-  sleep 1
-done
-
-# Start patroni-watcher in background
-echo "[supervisor] Starting patroni-watcher..."
-/usr/local/bin/patroni-watcher.sh &
-WATCHER_PID=$!
-
-# Wait for either process to exit
-wait -n $PGPOOL_PID $WATCHER_PID
-EXIT_CODE=$?
-
-echo "[supervisor] A process exited with code $EXIT_CODE, shutting down..."
-cleanup
-EOF
-
-RUN chmod +x /run-with-watcher.sh
-
 USER 1001
 
 ENTRYPOINT ["/entrypoint-wrapper.sh"]
-CMD ["/run-with-watcher.sh"]
+CMD ["/opt/bitnami/scripts/pgpool/run.sh"]
 
 EXPOSE 5432 9999
 

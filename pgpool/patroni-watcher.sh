@@ -95,6 +95,16 @@ main() {
         exit 1
     fi
 
+    # Wait for pgpool to be ready
+    log "Waiting for pgpool to be ready..."
+    for i in {1..60}; do
+        if timeout 2 bash -c "echo quit | nc localhost 9898" 2>/dev/null; then
+            log "Pgpool PCP port is ready"
+            break
+        fi
+        sleep 2
+    done
+
     last_leader=""
 
     while true; do
