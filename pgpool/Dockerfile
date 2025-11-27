@@ -2,7 +2,7 @@ FROM railwayapp/pgpool:4
 
 USER root
 
-# Force rebuild 2025-11-27-03-30
+# Force rebuild 2025-11-27-05-40
 
 # Don't try to use ENV vars to disable health checks - Bitnami ignores them
 # We'll modify pgpool.conf directly before starting pgpool
@@ -21,22 +21,31 @@ COPY pool_hba.conf /opt/bitnami/pgpool/conf/pool_hba.conf
 COPY patroni-watcher.py /usr/local/bin/patroni-watcher.py
 RUN chmod +x /usr/local/bin/patroni-watcher.py
 
-# Create custom run script that modifies configs and starts services
-# This runs AFTER Bitnami's entrypoint creates the config files
-COPY <<'EOF' /opt/bitnami/scripts/pgpool/run-with-watcher.sh
+# Backup original run.sh and replace it with our custom version
+# This ensures config generation happens, then we modify it
+RUN cp /opt/bitnami/scripts/pgpool/run.sh /opt/bitnami/scripts/pgpool/run.sh.orig
+
+COPY <<'EOF' /opt/bitnami/scripts/pgpool/run.sh
 #!/bin/bash
 set -e
 
-echo "[run-with-watcher] Starting custom pgpool runner..." >&2
+echo "[custom-run] Starting Bitnami pgpool initialization..." >&2
 
-# At this point, Bitnami's entrypoint has already created configs from env vars
+# Source Bitnami's setup functions
+. /opt/bitnami/scripts/libpgpool.sh
+. /opt/bitnami/scripts/libos.sh
+
+# Run Bitnami's initialization (generates configs from env vars)
+echo "[custom-run] Running Bitnami setup..." >&2
+info "** Starting Pgpool-II setup **"
+/opt/bitnami/scripts/pgpool/setup.sh
+info "** Pgpool-II setup finished! **"
+
+# Now modify the generated configs
 PGPOOL_CONF="/opt/bitnami/pgpool/conf/pgpool.conf"
 
-# Wait briefly for config to be fully written
-sleep 2
-
 if [ -f "$PGPOOL_CONF" ]; then
-  echo "[run-with-watcher] Found pgpool.conf, modifying to disable health checks..." >&2
+  echo "[custom-run] Modifying pgpool.conf to disable health checks..." >&2
 
   # Disable health check by setting period to 0
   sed -i 's/^health_check_period = .*/health_check_period = 0/' "$PGPOOL_CONF"
@@ -44,12 +53,11 @@ if [ -f "$PGPOOL_CONF" ]; then
   # Disable sr_check by setting period to 0
   sed -i 's/^sr_check_period = .*/sr_check_period = 0/' "$PGPOOL_CONF"
 
-  echo "[run-with-watcher] Config modifications complete" >&2
-  echo "[run-with-watcher] Health check period: $(grep '^health_check_period' $PGPOOL_CONF)" >&2
-  echo "[run-with-watcher] SR check period: $(grep '^sr_check_period' $PGPOOL_CONF)" >&2
+  echo "[custom-run] Config modifications complete" >&2
+  echo "[custom-run] Health check period: $(grep '^health_check_period' $PGPOOL_CONF)" >&2
+  echo "[custom-run] SR check period: $(grep '^sr_check_period' $PGPOOL_CONF)" >&2
 else
-  echo "[run-with-watcher] ERROR: pgpool.conf not found at $PGPOOL_CONF" >&2
-  echo "[run-with-watcher] Listing /opt/bitnami/pgpool/conf:" >&2
+  echo "[custom-run] ERROR: pgpool.conf not found after setup" >&2
   ls -la /opt/bitnami/pgpool/conf/ >&2 || true
   exit 1
 fi
@@ -57,44 +65,34 @@ fi
 # Configure PCP admin user
 PCP_CONF="/opt/bitnami/pgpool/conf/pcp.conf"
 if [ -f "$PCP_CONF" ] && [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
-  echo "[run-with-watcher] Adding admin user to pcp.conf..." >&2
-
-  # Generate MD5 hash for PCP (format: md5<md5(password+username)>)
+  echo "[custom-run] Adding admin user to pcp.conf..." >&2
   HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
   echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> "$PCP_CONF"
-
-  echo "[run-with-watcher] Admin user added to pcp.conf" >&2
-else
-  echo "[run-with-watcher] WARNING: Could not configure PCP admin user" >&2
-  echo "[run-with-watcher]   PCP_CONF exists: $([ -f "$PCP_CONF" ] && echo yes || echo no)" >&2
-  echo "[run-with-watcher]   PGPOOL_ADMIN_USERNAME: ${PGPOOL_ADMIN_USERNAME:-not set}" >&2
+  echo "[custom-run] Admin user added" >&2
 fi
 
 # Start patroni-watcher in background
-echo "[run-with-watcher] Starting patroni-watcher..." >&2
+echo "[custom-run] Starting patroni-watcher..." >&2
 python3 /usr/local/bin/patroni-watcher.py &
 WATCHER_PID=$!
-echo "[run-with-watcher] patroni-watcher started with PID $WATCHER_PID" >&2
 
 # Trap to kill watcher on exit
 cleanup() {
-  echo "[run-with-watcher] Shutting down, killing watcher PID $WATCHER_PID..." >&2
+  echo "[custom-run] Shutting down watcher PID $WATCHER_PID..." >&2
   kill $WATCHER_PID 2>/dev/null || true
 }
 trap cleanup SIGTERM SIGINT EXIT
 
-# Start pgpool with modified config
-echo "[run-with-watcher] Starting pgpool..." >&2
-exec /opt/bitnami/scripts/pgpool/run.sh
+# Start pgpool (from original Bitnami run.sh)
+echo "[custom-run] Starting pgpool..." >&2
+info "** Starting Pgpool-II **"
+
+exec "${PGPOOL_BIN_DIR}/pgpool" -n -f "${PGPOOL_CONF_DIR}/pgpool.conf" -F "${PGPOOL_CONF_DIR}/pcp.conf"
 EOF
 
-RUN chmod +x /opt/bitnami/scripts/pgpool/run-with-watcher.sh
+RUN chmod +x /opt/bitnami/scripts/pgpool/run.sh
 
 USER 1001
-
-# Use Bitnami's default entrypoint (don't override it)
-# Our custom run script will execute after entrypoint creates configs
-CMD ["/opt/bitnami/scripts/pgpool/run-with-watcher.sh"]
 
 EXPOSE 5432 9999
 
