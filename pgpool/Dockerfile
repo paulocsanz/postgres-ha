@@ -2,13 +2,11 @@ FROM railwayapp/pgpool:4
 
 USER root
 
-# Force rebuild 2025-11-27-02-10
+# Force rebuild 2025-11-27-02-47
 
-# Disable pgpool health checks AND sr_check - let patroni-watcher control backends
-# Use period=0 to disable, not enable=no (Bitnami doesn't recognize enable flag)
-ENV PGPOOL_HEALTH_CHECK_PERIOD=0
+# Don't try to use ENV vars to disable health checks - Bitnami ignores them
+# We'll modify pgpool.conf directly in the entrypoint wrapper instead
 ENV PGPOOL_ENABLE_POOL_HBA=yes
-ENV PGPOOL_SR_CHECK_PERIOD=0
 
 # Install Python and dependencies for patroni-watcher
 RUN apt-get update && apt-get install -y \
@@ -23,56 +21,70 @@ COPY pool_hba.conf /opt/bitnami/pgpool/conf/pool_hba.conf
 COPY patroni-watcher.py /usr/local/bin/patroni-watcher.py
 RUN chmod +x /usr/local/bin/patroni-watcher.py
 
-# Create wrapper entrypoint to fix missing env var and start watcher
+# Create wrapper entrypoint that modifies config files directly
 COPY <<'EOF' /entrypoint-wrapper.sh
 #!/bin/bash
 set -e
 
 echo "[entrypoint] Starting pgpool wrapper..." >&2
-echo "[entrypoint] PGPOOL_ADMIN_USERNAME=${PGPOOL_ADMIN_USERNAME}" >&2
-echo "[entrypoint] PGPOOL_ADMIN_PASSWORD is set: $([ -n "${PGPOOL_ADMIN_PASSWORD}" ] && echo 'yes' || echo 'no')" >&2
 
 # Workaround: Railway sometimes doesn't resolve PGPOOL_HEALTH_CHECK_PASSWORD
-# Copy from PGPOOL_POSTGRES_PASSWORD if empty
 if [ -z "${PGPOOL_HEALTH_CHECK_PASSWORD}" ] && [ -n "${PGPOOL_POSTGRES_PASSWORD}" ]; then
-  echo "[entrypoint] PGPOOL_HEALTH_CHECK_PASSWORD is empty, copying from PGPOOL_POSTGRES_PASSWORD" >&2
+  echo "[entrypoint] Copying PGPOOL_POSTGRES_PASSWORD to PGPOOL_HEALTH_CHECK_PASSWORD" >&2
   export PGPOOL_HEALTH_CHECK_PASSWORD="${PGPOOL_POSTGRES_PASSWORD}"
 fi
 
-# Background task to add admin user to pcp.conf after it's created
-if [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
-  (
-    echo "[entrypoint] Starting background task to add admin user to pcp.conf..." >&2
+# Run Bitnami's setup (but not run.sh yet)
+echo "[entrypoint] Running Bitnami setup..." >&2
+/opt/bitnami/scripts/pgpool/entrypoint.sh echo "Setup complete"
 
-    # Wait for pcp.conf to be created by Bitnami's initialization
-    for i in {1..60}; do
-      if [ -f /opt/bitnami/pgpool/conf/pcp.conf ]; then
-        echo "[entrypoint] pcp.conf found at /opt/bitnami/pgpool/conf/pcp.conf" >&2
-        echo "[entrypoint] Current pcp.conf contents:" >&2
-        cat /opt/bitnami/pgpool/conf/pcp.conf >&2
+# Now modify pgpool.conf directly to disable health checks and sr_check
+PGPOOL_CONF="/opt/bitnami/pgpool/conf/pgpool.conf"
+if [ -f "$PGPOOL_CONF" ]; then
+  echo "[entrypoint] Modifying $PGPOOL_CONF to disable health checks and sr_check..." >&2
 
-        # Generate MD5 hash for PCP (format: md5<md5(password+username)>)
-        HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
-        echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> /opt/bitnami/pgpool/conf/pcp.conf
+  # Disable health check by setting period to 0
+  sed -i 's/^health_check_period = .*/health_check_period = 0/' "$PGPOOL_CONF"
 
-        echo "[entrypoint] Admin user ${PGPOOL_ADMIN_USERNAME} added to pcp.conf with hash md5${HASH}" >&2
-        echo "[entrypoint] Updated pcp.conf contents:" >&2
-        cat /opt/bitnami/pgpool/conf/pcp.conf >&2
-        break
-      fi
-      if [ $i -eq 60 ]; then
-        echo "[entrypoint] ERROR: Timeout waiting for pcp.conf to be created" >&2
-      fi
-      sleep 1
-    done
-  ) &
-  PCP_TASK_PID=$!
-  echo "[entrypoint] PCP admin user background task started with PID $PCP_TASK_PID" >&2
+  # Disable sr_check by setting period to 0
+  sed -i 's/^sr_check_period = .*/sr_check_period = 0/' "$PGPOOL_CONF"
+
+  echo "[entrypoint] Config modifications complete" >&2
+  echo "[entrypoint] Health check period: $(grep '^health_check_period' $PGPOOL_CONF)" >&2
+  echo "[entrypoint] SR check period: $(grep '^sr_check_period' $PGPOOL_CONF)" >&2
 else
-  echo "[entrypoint] WARNING: PGPOOL_ADMIN_USERNAME or PGPOOL_ADMIN_PASSWORD not set, skipping PCP admin user setup" >&2
+  echo "[entrypoint] WARNING: pgpool.conf not found at $PGPOOL_CONF" >&2
 fi
 
-# Start patroni-watcher in background (it will wait for pgpool to be ready)
+# Find and modify pcp.conf to add admin user
+echo "[entrypoint] Searching for pcp.conf..." >&2
+PCP_CONF=""
+for path in /opt/bitnami/pgpool/conf/pcp.conf /opt/bitnami/pgpool/etc/pcp.conf /etc/pgpool-II/pcp.conf; do
+  if [ -f "$path" ]; then
+    PCP_CONF="$path"
+    echo "[entrypoint] Found pcp.conf at $PCP_CONF" >&2
+    break
+  fi
+done
+
+if [ -n "$PCP_CONF" ] && [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
+  echo "[entrypoint] Adding admin user to pcp.conf..." >&2
+  echo "[entrypoint] Current pcp.conf contents:" >&2
+  cat "$PCP_CONF" >&2
+
+  # Generate MD5 hash for PCP (format: md5<md5(password+username)>)
+  HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
+  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> "$PCP_CONF"
+
+  echo "[entrypoint] Admin user added. Updated pcp.conf:" >&2
+  cat "$PCP_CONF" >&2
+else
+  echo "[entrypoint] WARNING: Could not configure PCP admin user" >&2
+  echo "[entrypoint]   PCP_CONF=$PCP_CONF" >&2
+  echo "[entrypoint]   PGPOOL_ADMIN_USERNAME=$PGPOOL_ADMIN_USERNAME" >&2
+fi
+
+# Start patroni-watcher in background
 echo "[entrypoint] Starting patroni-watcher..." >&2
 python3 /usr/local/bin/patroni-watcher.py &
 WATCHER_PID=$!
@@ -85,9 +97,9 @@ cleanup() {
 }
 trap cleanup SIGTERM SIGINT EXIT
 
-# Call original Bitnami entrypoint
-echo "[entrypoint] Calling Bitnami entrypoint..." >&2
-exec /opt/bitnami/scripts/pgpool/entrypoint.sh "$@"
+# Now start pgpool with modified config
+echo "[entrypoint] Starting pgpool..." >&2
+exec /opt/bitnami/scripts/pgpool/run.sh
 EOF
 
 RUN chmod +x /entrypoint-wrapper.sh
