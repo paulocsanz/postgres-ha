@@ -2,7 +2,7 @@ FROM railwayapp/pgpool:4
 
 USER root
 
-# Force rebuild 2025-11-27-00-20
+# Force rebuild 2025-11-27-00-55
 
 # Disable pgpool health checks - let patroni-watcher control backends
 ENV PGPOOL_HEALTH_CHECK_PERIOD=0
@@ -32,6 +32,26 @@ if [ -z "${PGPOOL_HEALTH_CHECK_PASSWORD}" ] && [ -n "${PGPOOL_POSTGRES_PASSWORD}
   export PGPOOL_HEALTH_CHECK_PASSWORD="${PGPOOL_POSTGRES_PASSWORD}"
 fi
 
+# Background task to add admin user to pcp.conf after it's created
+if [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
+  (
+    # Wait for pcp.conf to be created by Bitnami's initialization
+    for i in {1..60}; do
+      if [ -f /opt/bitnami/pgpool/conf/pcp.conf ]; then
+        echo "[entrypoint] Adding ${PGPOOL_ADMIN_USERNAME} to pcp.conf..."
+
+        # Generate MD5 hash for PCP (format: md5<md5(password+username)>)
+        HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
+        echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> /opt/bitnami/pgpool/conf/pcp.conf
+
+        echo "[entrypoint] Admin user added to pcp.conf successfully"
+        break
+      fi
+      sleep 1
+    done
+  ) &
+fi
+
 # Start patroni-watcher in background (it will wait for pgpool to be ready)
 python3 /usr/local/bin/patroni-watcher.py &
 WATCHER_PID=$!
@@ -48,34 +68,6 @@ exec /opt/bitnami/scripts/pgpool/entrypoint.sh "$@"
 EOF
 
 RUN chmod +x /entrypoint-wrapper.sh
-
-# Create init script to add admin user to pool_passwd and pcp.conf
-COPY <<'EOF' /docker-entrypoint-initdb.d/01-add-admin-user.sh
-#!/bin/bash
-set -e
-
-# Wait for pool_passwd to be created by Bitnami
-while [ ! -f /opt/bitnami/pgpool/conf/pool_passwd ]; do
-  echo "Waiting for pool_passwd to be created..."
-  sleep 1
-done
-
-# Add admin user if PGPOOL_ADMIN_USERNAME is set
-if [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
-  echo "Adding ${PGPOOL_ADMIN_USERNAME} to pool_passwd and pcp.conf..."
-
-  # Generate MD5 hash for pgpool (format: md5<md5(password+username)>)
-  HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
-  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> /opt/bitnami/pgpool/conf/pool_passwd
-
-  # Add to pcp.conf for PCP authentication (format: username:md5hash)
-  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> /opt/bitnami/pgpool/conf/pcp.conf
-
-  echo "Admin user added successfully to both pool_passwd and pcp.conf"
-fi
-EOF
-
-RUN chmod +x /docker-entrypoint-initdb.d/01-add-admin-user.sh
 
 USER 1001
 
