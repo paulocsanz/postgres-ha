@@ -71,17 +71,8 @@ else
   exit 1
 fi
 
-# Configure PCP admin user - create pcp.conf since setup.sh doesn't create it
-PCP_CONF="/opt/bitnami/pgpool/conf/pcp.conf"
-if [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
-  echo "[custom-run] Creating pcp.conf with admin user..." >&2
-  HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}" | md5sum | cut -d' ' -f1)
-  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" > "$PCP_CONF"
-  chmod 644 "$PCP_CONF"
-  echo "[custom-run] pcp.conf created" >&2
-else
-  echo "[custom-run] WARNING: PGPOOL_ADMIN_USERNAME or PGPOOL_ADMIN_PASSWORD not set, pcp.conf not created" >&2
-fi
+# Bitnami's setup.sh creates pcp.conf, so we don't need to
+echo "[custom-run] Bitnami created pcp.conf during setup" >&2
 
 # Start patroni-watcher in background
 echo "[custom-run] Starting patroni-watcher..." >&2
