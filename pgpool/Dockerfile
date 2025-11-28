@@ -71,14 +71,19 @@ else
   exit 1
 fi
 
-# Create pcp.conf manually with proper MD5 hash format
-echo "[custom-run] Creating pcp.conf with proper MD5 hash..." >&2
+# Copy Bitnami's generated pcp.conf to the correct location
+# Bitnami generates it in /etc/ but pgpool looks for it in /conf/
+echo "[custom-run] Copying Bitnami's pcp.conf to /conf/ directory..." >&2
 mkdir -p /opt/bitnami/pgpool/conf
-HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | awk '{print $1}')
-echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" > /opt/bitnami/pgpool/conf/pcp.conf
-echo "[custom-run] pcp.conf created successfully" >&2
-echo "[custom-run] DEBUG: pcp.conf contents:" >&2
-cat /opt/bitnami/pgpool/conf/pcp.conf >&2
+if [ -f /opt/bitnami/pgpool/etc/pcp.conf ]; then
+  cp /opt/bitnami/pgpool/etc/pcp.conf /opt/bitnami/pgpool/conf/pcp.conf
+  echo "[custom-run] pcp.conf copied successfully" >&2
+  echo "[custom-run] DEBUG: pcp.conf contents:" >&2
+  cat /opt/bitnami/pgpool/conf/pcp.conf >&2
+else
+  echo "[custom-run] ERROR: /opt/bitnami/pgpool/etc/pcp.conf not found" >&2
+  exit 1
+fi
 
 # Start patroni-watcher in background
 echo "[custom-run] Starting patroni-watcher..." >&2
