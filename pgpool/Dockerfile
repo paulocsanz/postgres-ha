@@ -71,10 +71,11 @@ else
   exit 1
 fi
 
-# Create pcp.conf manually using pg_md5 for proper password hashing
+# Create pcp.conf manually with proper MD5 hash format
 echo "[custom-run] Creating pcp.conf with proper MD5 hash..." >&2
 mkdir -p /opt/bitnami/pgpool/conf
-echo "${PGPOOL_ADMIN_USERNAME}:$(pg_md5 -m -u ${PGPOOL_ADMIN_USERNAME} ${PGPOOL_ADMIN_PASSWORD})" > /opt/bitnami/pgpool/conf/pcp.conf
+HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | awk '{print $1}')
+echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" > /opt/bitnami/pgpool/conf/pcp.conf
 echo "[custom-run] pcp.conf created successfully" >&2
 echo "[custom-run] DEBUG: pcp.conf contents:" >&2
 cat /opt/bitnami/pgpool/conf/pcp.conf >&2
