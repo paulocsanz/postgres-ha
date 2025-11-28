@@ -2,15 +2,20 @@ FROM railwayapp/pgpool:4
 
 USER root
 
-# Force rebuild - removed watcher, using native pgpool health checks
-ARG CACHE_BUST=2025-11-28-native-healthcheck
+# Force rebuild - restored watcher with retry logic and periodic resync
+ARG CACHE_BUST=2025-11-28-watcher-v2
 
 ENV PGPOOL_ENABLE_POOL_HBA=yes
 
-# Only need netcat for basic diagnostics (no Python needed without watcher)
+# Python for watcher, netcat for diagnostics
 RUN apt-get update && apt-get install -y \
+    python3 \
     netcat-openbsd \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy watcher script
+COPY patroni-watcher.py /opt/patroni-watcher.py
+RUN chmod +x /opt/patroni-watcher.py
 
 # Copy custom pool_hba.conf
 COPY pool_hba.conf /opt/bitnami/pgpool/conf/pool_hba.conf
@@ -76,13 +81,19 @@ echo "${USERNAME}:${HASH}" > /opt/bitnami/pgpool/conf/pcp.conf
 chmod 600 /opt/bitnami/pgpool/conf/pcp.conf
 echo "[custom-run] pcp.conf generated successfully" >&2
 
-# Create pcppass file for PCP client authentication (for manual debugging)
+# Create pcppass file for PCP client authentication
 echo "localhost:9898:${USERNAME}:${PGPOOL_ADMIN_PASSWORD}" > /tmp/.pcppass
 echo "*:9898:${USERNAME}:${PGPOOL_ADMIN_PASSWORD}" >> /tmp/.pcppass
 chmod 600 /tmp/.pcppass
 
-# Start pgpool - native health checks handle primary detection
-echo "[custom-run] Starting pgpool with native sr_check and health_check..." >&2
+# Start patroni watcher in background
+echo "[custom-run] Starting patroni watcher in background..." >&2
+python3 /opt/patroni-watcher.py &
+WATCHER_PID=$!
+echo "[custom-run] Watcher started with PID: $WATCHER_PID" >&2
+
+# Start pgpool
+echo "[custom-run] Starting pgpool..." >&2
 info "** Starting Pgpool-II **"
 
 exec "${PGPOOL_BIN_DIR}/pgpool" -n -f "${PGPOOL_CONF_DIR}/pgpool.conf" -F "${PGPOOL_CONF_DIR}/pcp.conf"
