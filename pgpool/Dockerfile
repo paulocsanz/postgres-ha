@@ -41,9 +41,10 @@ info "** Starting Pgpool-II setup **"
 /opt/bitnami/scripts/pgpool/setup.sh
 info "** Pgpool-II setup finished! **"
 
-# Restore our custom pool_hba.conf (setup.sh may have overwritten it)
+# Restore our custom pool_hba.conf (write to etc dir, not conf dir)
 echo "[custom-run] Restoring custom pool_hba.conf..." >&2
-cat > "${PGPOOL_CONF_DIR}/pool_hba.conf" <<'POOL_HBA_EOF'
+mkdir -p /opt/bitnami/pgpool/etc
+cat > /opt/bitnami/pgpool/etc/pool_hba.conf <<'POOL_HBA_EOF'
 local   all         all                               trust
 host    all         all         0.0.0.0/0             md5
 host    all         all         ::0/0                 md5
@@ -70,13 +71,16 @@ else
   exit 1
 fi
 
-# Configure PCP admin user
+# Configure PCP admin user - create pcp.conf since setup.sh doesn't create it
 PCP_CONF="/opt/bitnami/pgpool/conf/pcp.conf"
-if [ -f "$PCP_CONF" ] && [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
-  echo "[custom-run] Adding admin user to pcp.conf..." >&2
+if [ -n "${PGPOOL_ADMIN_USERNAME}" ] && [ -n "${PGPOOL_ADMIN_PASSWORD}" ]; then
+  echo "[custom-run] Creating pcp.conf with admin user..." >&2
   HASH=$(echo -n "${PGPOOL_ADMIN_PASSWORD}${PGPOOL_ADMIN_USERNAME}" | md5sum | cut -d' ' -f1)
-  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" >> "$PCP_CONF"
-  echo "[custom-run] Admin user added" >&2
+  echo "${PGPOOL_ADMIN_USERNAME}:md5${HASH}" > "$PCP_CONF"
+  chmod 644 "$PCP_CONF"
+  echo "[custom-run] pcp.conf created" >&2
+else
+  echo "[custom-run] WARNING: PGPOOL_ADMIN_USERNAME or PGPOOL_ADMIN_PASSWORD not set, pcp.conf not created" >&2
 fi
 
 # Start patroni-watcher in background
