@@ -41,6 +41,14 @@ info "** Starting Pgpool-II setup **"
 /opt/bitnami/scripts/pgpool/setup.sh
 info "** Pgpool-II setup finished! **"
 
+# Restore our custom pool_hba.conf (setup.sh may have overwritten it)
+echo "[custom-run] Restoring custom pool_hba.conf..." >&2
+cat > "${PGPOOL_CONF_DIR}/pool_hba.conf" <<'POOL_HBA_EOF'
+local   all         all                               trust
+host    all         all         0.0.0.0/0             md5
+host    all         all         ::0/0                 md5
+POOL_HBA_EOF
+
 # Now modify the generated configs
 PGPOOL_CONF="/opt/bitnami/pgpool/conf/pgpool.conf"
 
