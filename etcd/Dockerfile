@@ -14,6 +14,7 @@ ENV ETCD_ENABLE_V2=true
 ENV ETCD_DATA_DIR=/etcd-data/data
 
 COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 2379 2380
 
