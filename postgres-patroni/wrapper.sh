@@ -86,10 +86,11 @@ fi
 # Route based on PATRONI_ENABLED
 if [ "${PATRONI_ENABLED:-false}" = "true" ]; then
     echo "=== Patroni mode enabled ==="
-    exec /docker-entrypoint.sh "$@"
+    # Run Patroni entrypoint as postgres user (PostgreSQL refuses to run as root)
+    exec gosu postgres /docker-entrypoint.sh "$@"
 else
     echo "=== Standalone PostgreSQL mode ==="
-    # Standard postgres with SSL enabled
+    # Standard postgres entrypoint handles user switching internally
     exec docker-entrypoint.sh "$@" \
         -c ssl=on \
         -c ssl_cert_file="$CERTS_DIR/server.crt" \
