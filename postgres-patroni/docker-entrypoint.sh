@@ -132,23 +132,27 @@ REPLEOF
 else
     echo "No existing data - Patroni will initialize (primary) or clone (replica)"
 
-    # Clear ALL stale etcd state (prevents system ID mismatch issues)
-    echo "Clearing ALL stale etcd cluster state..."
-    for endpoint in $(echo $ETCD_HOSTS | tr ',' ' '); do
-        echo "  Clearing $endpoint..."
-        # Delete the entire scope directory recursively
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE?recursive=true" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/initialize" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/leader" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/members" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/config" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/history" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/status" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/sync" 2>/dev/null || true
-        curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/failover" 2>/dev/null || true
-        break
-    done
-    echo "etcd cluster state cleared"
+    # Only clear etcd state if we're the primary - replicas should just clone
+    if [ "$IS_PRIMARY" = "true" ]; then
+        echo "Primary node with no data - clearing ALL stale etcd cluster state..."
+        for endpoint in $(echo $ETCD_HOSTS | tr ',' ' '); do
+            echo "  Clearing $endpoint..."
+            # Delete the entire scope directory recursively
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE?recursive=true" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/initialize" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/leader" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/members" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/config" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/history" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/status" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/sync" 2>/dev/null || true
+            curl -s -X DELETE "http://$endpoint/v2/keys/service/$SCOPE/failover" 2>/dev/null || true
+            break
+        done
+        echo "etcd cluster state cleared"
+    else
+        echo "Replica node with no data - will clone from leader"
+    fi
 fi
 
 # Write credentials and settings for post_bootstrap script
