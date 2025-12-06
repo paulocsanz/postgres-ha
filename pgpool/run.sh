@@ -9,6 +9,14 @@ info "** Starting Pgpool-II setup **"
 /opt/bitnami/scripts/pgpool/setup.sh
 info "** Pgpool-II setup finished! **"
 
+# Restore pool_hba.conf (Bitnami setup may overwrite it)
+mkdir -p /opt/bitnami/pgpool/etc
+cat > /opt/bitnami/pgpool/etc/pool_hba.conf <<'POOL_HBA_EOF'
+local   all         all                               trust
+host    all         all         0.0.0.0/0             md5
+host    all         all         ::0/0                 md5
+POOL_HBA_EOF
+
 # Generate pcp.conf (pg_md5 is unreliable, use md5sum)
 USERNAME="${PGPOOL_ADMIN_USERNAME:-admin}"
 HASH=$(printf '%s' "${PGPOOL_ADMIN_PASSWORD}" | md5sum | cut -d' ' -f1)
