@@ -79,6 +79,18 @@ bootstrap:
     - encoding: UTF8
     - data-checksums
 
+  users:
+    ${SUPERUSER}:
+      password: ${SUPERUSER_PASS}
+      options:
+        - superuser
+        - createdb
+        - createrole
+    ${REPL_USER}:
+      password: ${REPL_PASS}
+      options:
+        - replication
+
   pg_hba:
     - local all all trust
     - hostssl replication ${REPL_USER} 0.0.0.0/0 md5
