@@ -83,6 +83,7 @@ fi
 # Route based on PATRONI_ENABLED
 if [ "${PATRONI_ENABLED:-false}" = "true" ]; then
     echo "=== Patroni mode enabled ==="
+    # SSL certs generated in post_bootstrap after database init
     # Run Patroni entrypoint as postgres user (PostgreSQL refuses to run as root)
     exec gosu postgres /docker-entrypoint.sh "$@"
 else

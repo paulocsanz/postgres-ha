@@ -36,18 +36,15 @@ else
     ls -la "$DATA_DIR" 2>/dev/null || echo "(empty or doesn't exist)"
 fi
 
-# Clean stale data for fresh bootstrap/clone
+# Clean stale data for fresh bootstrap/clone (keep certs)
 if [ "$HAS_VALID_DATA" = "false" ]; then
-    echo "Cleaning data directory..."
-    find "$DATA_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-    echo "Data dir after cleanup:"
-    ls -la "$DATA_DIR"
+    echo "Cleaning data directory (keeping certs)..."
+    find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name 'certs' -exec rm -rf {} +
 
-    # Clear etcd state (use v3 API)
+    # Clear etcd state
     FIRST_ETCD="${ETCD_HOSTS%%,*}"
     echo "Clearing etcd state at $FIRST_ETCD for scope $SCOPE..."
-    etcdctl --endpoints="http://$FIRST_ETCD" del "/service/$SCOPE" --prefix 2>/dev/null || \
-        curl -s -X DELETE "http://$FIRST_ETCD/v2/keys/service/$SCOPE?recursive=true" 2>/dev/null || true
+    curl -s -X DELETE "http://$FIRST_ETCD/v2/keys/service/$SCOPE?recursive=true" 2>/dev/null || true
 fi
 
 # Generate Patroni configuration
@@ -107,10 +104,6 @@ postgresql:
       password: ${SUPERUSER_PASS}
   parameters:
     unix_socket_directories: /var/run/postgresql
-    ssl: "on"
-    ssl_cert_file: "${CERTS_DIR}/server.crt"
-    ssl_key_file: "${CERTS_DIR}/server.key"
-    ssl_ca_file: "${CERTS_DIR}/ca.crt"
 EOF
 
 echo "Starting Patroni (scope: $SCOPE, etcd: $ETCD_HOSTS)"
