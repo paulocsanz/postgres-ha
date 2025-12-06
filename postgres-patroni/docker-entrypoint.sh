@@ -120,6 +120,27 @@ EOF
 
 echo "Starting Patroni (scope: $SCOPE, etcd: $ETCD_HOSTS)"
 
+# Ensure replicator user exists (runs in background after postgres starts)
+(
+    sleep 15  # Wait for postgres to be ready
+    for i in 1 2 3 4 5; do
+        if psql -U postgres -d postgres -c "SELECT 1" 2>/dev/null; then
+            echo "Creating replicator user if not exists..."
+            psql -U postgres -d postgres -c "
+                DO \$\$
+                BEGIN
+                    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${REPL_USER}') THEN
+                        CREATE ROLE ${REPL_USER} WITH REPLICATION PASSWORD '${REPL_PASS}' LOGIN;
+                        RAISE NOTICE 'Created replicator user';
+                    END IF;
+                END
+                \$\$;
+            " && break
+        fi
+        sleep 5
+    done
+) &
+
 # Cleanup on exit
 cleanup() {
     echo "Patroni exiting, stopping PostgreSQL..."
