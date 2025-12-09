@@ -65,7 +65,7 @@ ensure_users() {
             echo "Ensuring PostgreSQL users are correctly configured (superuser: ${SUPERUSER})..."
             # Use the actual superuser, not hardcoded 'postgres'
             # Connect via Unix socket which uses 'local all all trust' from pg_hba
-            psql -h /var/run/postgresql -U "${SUPERUSER}" -d postgres <<-EOSQL
+            psql -h /var/run/postgresql -U "${SUPERUSER}" <<-EOSQL
                 -- Ensure replicator user exists with LOGIN
                 DO \$\$
                 BEGIN
