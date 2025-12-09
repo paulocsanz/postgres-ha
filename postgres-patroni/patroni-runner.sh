@@ -37,17 +37,7 @@ SUPERUSER_PASS="${POSTGRES_PASSWORD}"
 REPL_USER="${PATRONI_REPLICATION_USERNAME:-replicator}"
 REPL_PASS="${PATRONI_REPLICATION_PASSWORD}"
 
-# Debug: show what values are being used
-echo "DEBUG: NAME=${NAME}"
-echo "DEBUG: CONNECT_ADDRESS=${CONNECT_ADDRESS}"
-echo "DEBUG: ETCD_HOSTS=${ETCD_HOSTS}"
-echo "DEBUG: SUPERUSER=${SUPERUSER}"
-echo "DEBUG: REPL_USER=${REPL_USER}"
-
-# Primary is determined by env var, not hardcoded name
-IS_PRIMARY="${PATRONI_IS_PRIMARY:-false}"
-
-echo "Node: $NAME (primary: $IS_PRIMARY, address: $CONNECT_ADDRESS)"
+echo "Node: $NAME (address: $CONNECT_ADDRESS)"
 
 # Check for valid PostgreSQL data
 HAS_VALID_DATA=false
@@ -65,13 +55,6 @@ if [ "$HAS_VALID_DATA" = "false" ]; then
     echo "Cleaning data directory (keeping certs)..."
     find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name 'certs' -exec rm -rf {} +
 
-    # Only clear etcd state if this is the primary AND explicitly requested
-    # Replicas should NEVER clear etcd state - they need to join the existing cluster
-    if [ "$IS_PRIMARY" = "true" ] && [ "${CLEAR_ETCD_ON_BOOTSTRAP:-false}" = "true" ]; then
-        FIRST_ETCD="${ETCD_HOSTS%%,*}"
-        echo "Clearing etcd state at $FIRST_ETCD for scope $SCOPE..."
-        curl -s -X DELETE "http://$FIRST_ETCD/v2/keys/service/$SCOPE?recursive=true" 2>/dev/null || true
-    fi
 fi
 
 # Generate Patroni configuration
