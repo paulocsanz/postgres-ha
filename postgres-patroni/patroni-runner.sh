@@ -11,28 +11,43 @@ CERTS_DIR="$DATA_DIR/certs"
 
 echo "=== Patroni Runner ==="
 
-# Configuration
+# Configuration - all values from environment variables, no defaults
 SCOPE="${PATRONI_SCOPE:-railway-pg-ha}"
-NAME="${PATRONI_NAME:-postgres-1}"
-ETCD_HOSTS="${PATRONI_ETCD_HOSTS:-etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379}"
+NAME="${PATRONI_NAME}"
+CONNECT_ADDRESS="${RAILWAY_PRIVATE_DOMAIN}"
+ETCD_HOSTS="${PATRONI_ETCD_HOSTS}"
+
+# Validate required env vars
+if [ -z "$NAME" ]; then
+    echo "ERROR: PATRONI_NAME must be set"
+    exit 1
+fi
+if [ -z "$CONNECT_ADDRESS" ]; then
+    echo "ERROR: RAILWAY_PRIVATE_DOMAIN must be set"
+    exit 1
+fi
+if [ -z "$ETCD_HOSTS" ]; then
+    echo "ERROR: PATRONI_ETCD_HOSTS must be set"
+    exit 1
+fi
 
 # Credentials
-SUPERUSER="${PATRONI_SUPERUSER_USERNAME:-${POSTGRES_USER:-postgres}}"
-SUPERUSER_PASS="${PATRONI_SUPERUSER_PASSWORD:-${POSTGRES_PASSWORD}}"
+SUPERUSER="${POSTGRES_USER:-postgres}"
+SUPERUSER_PASS="${POSTGRES_PASSWORD}"
 REPL_USER="${PATRONI_REPLICATION_USERNAME:-replicator}"
 REPL_PASS="${PATRONI_REPLICATION_PASSWORD}"
 
 # Debug: show what values are being used
-echo "DEBUG: POSTGRES_USER=${POSTGRES_USER}"
-echo "DEBUG: PATRONI_SUPERUSER_USERNAME=${PATRONI_SUPERUSER_USERNAME}"
+echo "DEBUG: NAME=${NAME}"
+echo "DEBUG: CONNECT_ADDRESS=${CONNECT_ADDRESS}"
+echo "DEBUG: ETCD_HOSTS=${ETCD_HOSTS}"
 echo "DEBUG: SUPERUSER=${SUPERUSER}"
 echo "DEBUG: REPL_USER=${REPL_USER}"
 
-# Primary is postgres-1
-IS_PRIMARY=false
-[ "$NAME" = "postgres-1" ] && IS_PRIMARY=true
+# Primary is determined by env var, not hardcoded name
+IS_PRIMARY="${PATRONI_IS_PRIMARY:-false}"
 
-echo "Node: $NAME (primary: $IS_PRIMARY)"
+echo "Node: $NAME (primary: $IS_PRIMARY, address: $CONNECT_ADDRESS)"
 
 # Check for valid PostgreSQL data
 HAS_VALID_DATA=false
@@ -66,7 +81,7 @@ name: ${NAME}
 
 restapi:
   listen: 0.0.0.0:8008
-  connect_address: ${NAME}.railway.internal:8008
+  connect_address: ${CONNECT_ADDRESS}:8008
 
 etcd:
   hosts: ${ETCD_HOSTS}
@@ -115,7 +130,7 @@ bootstrap:
 
 postgresql:
   listen: 0.0.0.0:5432
-  connect_address: ${NAME}.railway.internal:5432
+  connect_address: ${CONNECT_ADDRESS}:5432
   data_dir: ${DATA_DIR}
   pgpass: /tmp/pgpass
   remove_data_directory_on_rewind_failure: true
