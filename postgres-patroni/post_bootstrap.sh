@@ -14,8 +14,13 @@ SUPERUSER_PASS="${PATRONI_SUPERUSER_PASSWORD:-${POSTGRES_PASSWORD}}"
 REPL_USER="${PATRONI_REPLICATION_USERNAME:-replicator}"
 REPL_PASS="${PATRONI_REPLICATION_PASSWORD}"
 
+echo "DEBUG: SUPERUSER='${SUPERUSER}' REPL_USER='${REPL_USER}'"
+echo "DEBUG: PATRONI_SUPERUSER_PASSWORD set: $([ -n \"${PATRONI_SUPERUSER_PASSWORD}\" ] && echo 'yes' || echo 'no')"
+echo "DEBUG: PATRONI_REPLICATION_PASSWORD set: $([ -n \"${PATRONI_REPLICATION_PASSWORD}\" ] && echo 'yes' || echo 'no')"
+echo "DEBUG: POSTGRES_PASSWORD set: $([ -n \"${POSTGRES_PASSWORD}\" ] && echo 'yes' || echo 'no')"
+
 if [ -z "$SUPERUSER_PASS" ] || [ -z "$REPL_PASS" ]; then
-    echo "ERROR: Missing required passwords (POSTGRES_PASSWORD or PATRONI_REPLICATION_PASSWORD)"
+    echo "ERROR: Missing required passwords (SUPERUSER_PASS empty: $([ -z \"$SUPERUSER_PASS\" ] && echo 'yes' || echo 'no'), REPL_PASS empty: $([ -z \"$REPL_PASS\" ] && echo 'yes' || echo 'no'))"
     exit 1
 fi
 
