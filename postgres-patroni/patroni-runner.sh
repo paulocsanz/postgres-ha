@@ -15,7 +15,8 @@ echo "=== Patroni Runner ==="
 SCOPE="${PATRONI_SCOPE:-railway-pg-ha}"
 NAME="${PATRONI_NAME}"
 CONNECT_ADDRESS="${RAILWAY_PRIVATE_DOMAIN}"
-ETCD_HOSTS="${PATRONI_ETCD_HOSTS}"
+# Use PATRONI_ETCD3_HOSTS for v3 API (NOT PATRONI_ETCD_HOSTS which is v2)
+ETCD_HOSTS="${PATRONI_ETCD3_HOSTS}"
 
 # Validate required env vars
 if [ -z "$NAME" ]; then
@@ -27,7 +28,7 @@ if [ -z "$CONNECT_ADDRESS" ]; then
     exit 1
 fi
 if [ -z "$ETCD_HOSTS" ]; then
-    echo "ERROR: PATRONI_ETCD_HOSTS must be set"
+    echo "ERROR: PATRONI_ETCD3_HOSTS must be set"
     exit 1
 fi
 
