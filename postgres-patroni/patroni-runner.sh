@@ -54,8 +54,52 @@ fi
 if [ "$HAS_VALID_DATA" = "false" ]; then
     echo "Cleaning data directory (keeping certs)..."
     find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name 'certs' -exec rm -rf {} +
-
 fi
+
+# Self-healing: ensure users exist with correct attributes once PostgreSQL is up
+# Runs in background to not block Patroni startup
+ensure_users() {
+    for i in $(seq 1 60); do
+        if pg_isready -h /var/run/postgresql -q 2>/dev/null; then
+            sleep 2
+            echo "Ensuring PostgreSQL users are correctly configured..."
+            psql -h /var/run/postgresql -U postgres -d postgres <<-EOSQL
+                -- Ensure replicator user exists with LOGIN
+                DO \$\$
+                BEGIN
+                    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${REPL_USER}') THEN
+                        CREATE ROLE ${REPL_USER} WITH REPLICATION LOGIN PASSWORD '${REPL_PASS}';
+                        RAISE NOTICE 'Created user: ${REPL_USER}';
+                    ELSE
+                        ALTER ROLE ${REPL_USER} WITH REPLICATION LOGIN PASSWORD '${REPL_PASS}';
+                        RAISE NOTICE 'Updated user: ${REPL_USER}';
+                    END IF;
+                END
+                \$\$;
+
+                -- Ensure superuser has LOGIN if not postgres
+                DO \$\$
+                BEGIN
+                    IF '${SUPERUSER}' != 'postgres' THEN
+                        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${SUPERUSER}') THEN
+                            CREATE ROLE ${SUPERUSER} WITH SUPERUSER CREATEDB CREATEROLE LOGIN PASSWORD '${SUPERUSER_PASS}';
+                            RAISE NOTICE 'Created superuser: ${SUPERUSER}';
+                        ELSE
+                            ALTER ROLE ${SUPERUSER} WITH SUPERUSER CREATEDB CREATEROLE LOGIN PASSWORD '${SUPERUSER_PASS}';
+                            RAISE NOTICE 'Updated superuser: ${SUPERUSER}';
+                        END IF;
+                    END IF;
+                END
+                \$\$;
+EOSQL
+            echo "User configuration complete"
+            return 0
+        fi
+        sleep 2
+    done
+    echo "WARNING: Timed out waiting for PostgreSQL"
+}
+ensure_users &
 
 # Generate Patroni configuration
 cat > /tmp/patroni.yml <<EOF
@@ -97,10 +141,12 @@ bootstrap:
         - superuser
         - createdb
         - createrole
+        - login
     ${REPL_USER}:
       password: ${REPL_PASS}
       options:
         - replication
+        - login
 
   pg_hba:
     - local all all trust
