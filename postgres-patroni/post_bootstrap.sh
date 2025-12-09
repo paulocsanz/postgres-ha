@@ -61,4 +61,8 @@ fi
 echo "Post-bootstrap: generating SSL certificates..."
 bash /docker-entrypoint-initdb.d/init-ssl.sh
 
+# Mark bootstrap as complete - patroni-runner.sh checks for this marker
+# to distinguish complete bootstrap from stale/failed data
+touch /var/lib/postgresql/data/.patroni_bootstrap_complete
+
 echo "Post-bootstrap completed"

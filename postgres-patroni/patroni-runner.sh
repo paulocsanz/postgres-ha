@@ -31,62 +31,33 @@ if [ -z "$ETCD_HOSTS" ]; then
     exit 1
 fi
 
-# Credentials
-SUPERUSER="${POSTGRES_USER:-postgres}"
-SUPERUSER_PASS="${POSTGRES_PASSWORD}"
+# Credentials - use Patroni-specific env vars
+SUPERUSER="${PATRONI_SUPERUSER_USERNAME:-postgres}"
+SUPERUSER_PASS="${PATRONI_SUPERUSER_PASSWORD}"
 REPL_USER="${PATRONI_REPLICATION_USERNAME:-replicator}"
 REPL_PASS="${PATRONI_REPLICATION_PASSWORD}"
 
 echo "Node: $NAME (address: $CONNECT_ADDRESS)"
 
-# Check for valid PostgreSQL data
+# Bootstrap completion marker (like etcd pattern)
+# pg_control can exist from a failed bootstrap - only trust data if marker exists
+BOOTSTRAP_MARKER="$DATA_DIR/.patroni_bootstrap_complete"
+
 HAS_VALID_DATA=false
-if [ -f "$DATA_DIR/global/pg_control" ]; then
+if [ -f "$DATA_DIR/global/pg_control" ] && [ -f "$BOOTSTRAP_MARKER" ]; then
     HAS_VALID_DATA=true
-    echo "Found valid pg_control"
+    echo "Found valid data with bootstrap marker"
+elif [ -f "$DATA_DIR/global/pg_control" ]; then
+    echo "Found pg_control but NO bootstrap marker - stale data from failed bootstrap"
 else
-    echo "No valid pg_control found"
-    echo "Data dir contents:"
-    ls -la "$DATA_DIR" 2>/dev/null || echo "(empty or doesn't exist)"
+    echo "No PostgreSQL data found"
 fi
 
-# Clean stale data for fresh bootstrap/clone (keep certs)
+# Clean stale/incomplete data (keep certs)
 if [ "$HAS_VALID_DATA" = "false" ]; then
-    echo "Cleaning data directory (keeping certs)..."
+    echo "Cleaning data directory for fresh bootstrap (keeping certs)..."
     find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name 'certs' -exec rm -rf {} +
 fi
-
-# Self-healing: ensure users exist with correct attributes once PostgreSQL is up
-# Runs in background to not block Patroni startup
-ensure_users() {
-    for i in $(seq 1 60); do
-        if pg_isready -h /var/run/postgresql -q 2>/dev/null; then
-            sleep 2
-            echo "Ensuring PostgreSQL users are correctly configured (superuser: ${SUPERUSER})..."
-            # Use the actual superuser, not hardcoded 'postgres'
-            # Connect via Unix socket which uses 'local all all trust' from pg_hba
-            psql -U "${SUPERUSER}" <<-EOSQL
-                -- Ensure replicator user exists with LOGIN
-                DO \$\$
-                BEGIN
-                    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${REPL_USER}') THEN
-                        CREATE ROLE ${REPL_USER} WITH REPLICATION LOGIN PASSWORD '${REPL_PASS}';
-                        RAISE NOTICE 'Created user: ${REPL_USER}';
-                    ELSE
-                        ALTER ROLE ${REPL_USER} WITH REPLICATION LOGIN PASSWORD '${REPL_PASS}';
-                        RAISE NOTICE 'Updated user: ${REPL_USER}';
-                    END IF;
-                END
-                \$\$;
-EOSQL
-            echo "User configuration complete"
-            return 0
-        fi
-        sleep 2
-    done
-    echo "WARNING: Timed out waiting for PostgreSQL"
-}
-ensure_users &
 
 # Generate Patroni configuration
 cat > /tmp/patroni.yml <<EOF
