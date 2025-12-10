@@ -99,6 +99,7 @@ bootstrap:
   initdb:
     - encoding: UTF8
     - data-checksums
+    - username: ${SUPERUSER}
 
   # Note: bootstrap.users was removed in Patroni 4.0
   # Users are created in post_bootstrap script instead
