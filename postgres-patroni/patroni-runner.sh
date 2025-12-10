@@ -98,6 +98,7 @@ bootstrap:
         max_wal_senders: 10
         max_replication_slots: 10
         max_connections: 200
+        password_encryption: scram-sha-256
 
   initdb:
     - encoding: UTF8
