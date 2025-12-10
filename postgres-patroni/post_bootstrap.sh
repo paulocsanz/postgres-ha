@@ -96,13 +96,17 @@ END
 \$\$;
 
 -- Create or update replication user
+-- DEBUG: Print exact password being used
 DO \$\$
+DECLARE
+    pass TEXT := '${REPL_PASS}';
 BEGIN
+    RAISE NOTICE 'DEBUG: pass length=%, first4=%, last4=%', length(pass), left(pass,4), right(pass,4);
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${REPL_USER}') THEN
-        EXECUTE format('CREATE ROLE %I WITH REPLICATION LOGIN PASSWORD %L', '${REPL_USER}', '${REPL_PASS}');
+        EXECUTE format('CREATE ROLE %I WITH REPLICATION LOGIN PASSWORD %L', '${REPL_USER}', pass);
         RAISE NOTICE 'Created replication user: ${REPL_USER}';
     ELSE
-        EXECUTE format('ALTER ROLE %I WITH REPLICATION LOGIN PASSWORD %L', '${REPL_USER}', '${REPL_PASS}');
+        EXECUTE format('ALTER ROLE %I WITH REPLICATION LOGIN PASSWORD %L', '${REPL_USER}', pass);
         RAISE NOTICE 'Updated replication user: ${REPL_USER}';
     END IF;
 END
