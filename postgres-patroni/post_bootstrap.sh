@@ -58,10 +58,10 @@ echo "Setting superuser password..."
 $PSQL -c "ALTER ROLE \"$SUPERUSER\" WITH PASSWORD '$(echo "$SUPERUSER_PASS" | sed "s/'/''/g")'"
 echo "Superuser password set"
 
-# 2. Update replicator password (Patroni creates user during initdb)
-echo "Updating replicator password..."
-$PSQL -c "ALTER ROLE \"$REPL_USER\" WITH PASSWORD '$(echo "$REPL_PASS" | sed "s/'/''/g")'"
-echo "Replicator password updated"
+# 2. Create replicator user (Patroni 4.0+ no longer creates it automatically)
+echo "Creating replicator user..."
+$PSQL -c "CREATE ROLE \"$REPL_USER\" WITH REPLICATION LOGIN PASSWORD '$(echo "$REPL_PASS" | sed "s/'/''/g")'"
+echo "Replicator user created"
 
 # 3. VERIFY: Show password hash type (should be SCRAM-SHA-256$...)
 echo "Verifying password storage..."
