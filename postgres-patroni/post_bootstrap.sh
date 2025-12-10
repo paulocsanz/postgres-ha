@@ -52,6 +52,10 @@ APP_PASS=$(grep -A2 'app_user:' "$PATRONI_CONFIG" | grep 'password:' | head -1 |
 
 echo "DEBUG: REPL_USER=${REPL_USER}"
 echo "DEBUG: REPL_PASS length=${#REPL_PASS}"
+echo "DEBUG: REPL_PASS first4=${REPL_PASS:0:4} last4=${REPL_PASS: -4}"
+echo "DEBUG: SUPERUSER=${SUPERUSER}"
+echo "DEBUG: Raw password line from YAML:"
+grep -A2 'replication:' "$PATRONI_CONFIG" | grep 'password:' | head -1 | cat -A
 
 if [ -z "$REPL_USER" ] || [ -z "$REPL_PASS" ]; then
     echo "ERROR: Could not extract replication credentials from Patroni config"
