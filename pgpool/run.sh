@@ -17,10 +17,6 @@ if [ -z "$PGPOOL_POSTGRES_PASSWORD" ]; then
     exit 1
 fi
 
-# Create necessary directories
-mkdir -p /opt/bitnami/pgpool/conf /opt/bitnami/pgpool/etc /var/run/pgpool /opt/bitnami/pgpool/tmp /opt/bitnami/pgpool/logs
-chmod 755 /var/run/pgpool
-
 # Start with our template config
 cp /opt/pgpool.conf.template /opt/bitnami/pgpool/conf/pgpool.conf
 
