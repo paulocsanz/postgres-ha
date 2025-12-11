@@ -219,13 +219,18 @@ This confirms:
 5. Go to **Variables** tab → Add:
 
 ```bash
-# Backend configuration (hardcoded in pgpool.conf, but passwords needed)
-POSTGRES_PASSWORD=${{shared.POSTGRES_PASSWORD}}
-REPLICATION_PASSWORD=${{shared.PATRONI_REPLICATION_PASSWORD}}
+# Backend nodes (auto-configured from postgres services)
+PGPOOL_BACKEND_NODES=0:${{postgres-1.RAILWAY_PRIVATE_DOMAIN}}:5432,1:${{postgres-2.RAILWAY_PRIVATE_DOMAIN}}:5432,2:${{postgres-3.RAILWAY_PRIVATE_DOMAIN}}:5432
 
-# Optional: Tuning
-PGPOOL_NUM_INIT_CHILDREN=32
-PGPOOL_MAX_POOL=4
+# Postgres password for health checks
+PGPOOL_POSTGRES_PASSWORD=${{shared.POSTGRES_PASSWORD}}
+
+# Replication password for SR checks
+PGPOOL_SR_CHECK_PASSWORD=${{shared.PATRONI_REPLICATION_PASSWORD}}
+
+# Admin credentials for PCP commands
+PGPOOL_ADMIN_USERNAME=admin
+PGPOOL_ADMIN_PASSWORD=${{shared.POSTGRES_PASSWORD}}
 ```
 
 6. Go to **Settings** → **Deploy**:

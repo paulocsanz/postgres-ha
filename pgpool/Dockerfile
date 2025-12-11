@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y python3 python3-requests \
 
 COPY patroni-watcher.py /opt/patroni-watcher.py
 COPY pool_hba.conf /opt/bitnami/pgpool/conf/pool_hba.conf
+COPY pgpool.conf /opt/pgpool.conf.template
 COPY run.sh /opt/bitnami/scripts/pgpool/run.sh
 RUN chmod +x /opt/patroni-watcher.py /opt/bitnami/scripts/pgpool/run.sh
 
