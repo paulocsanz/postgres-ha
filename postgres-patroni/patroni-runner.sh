@@ -130,8 +130,8 @@ etcd3:
 bootstrap:
   dcs:
     ttl: ${PATRONI_TTL:-45}
-    loop_wait: ${PATRONI_LOOP_WAIT:-5}
-    retry_timeout: ${PATRONI_RETRY_TIMEOUT:-5}
+    loop_wait: ${PATRONI_LOOP_WAIT:-10}
+    retry_timeout: ${PATRONI_RETRY_TIMEOUT:-30}
     maximum_lag_on_failover: 1048576
     failsafe_mode: true
     postgresql:
@@ -169,6 +169,12 @@ postgresql:
   pgpass: /tmp/pgpass
   remove_data_directory_on_rewind_failure: true
   remove_data_directory_on_diverged_timelines: true
+  create_replica_methods:
+    - basebackup
+  basebackup:
+    max_tries: 3
+    checkpoint: fast
+    wal_method: stream
   authentication:
     replication:
       username: "${REPL_USER}"
