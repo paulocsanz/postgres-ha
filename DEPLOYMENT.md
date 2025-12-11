@@ -44,7 +44,7 @@ PATRONI_REPLICATION_PASSWORD=<click "Generate" for secure password>
 PATRONI_SCOPE=pg-ha-cluster
 PATRONI_TTL=30
 PATRONI_LOOP_WAIT=10
-PATRONI_ETCD_HOSTS=etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379
+PATRONI_ETCD3_HOSTS=etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379
 
 # Optional: For failover watcher (get from Railway project settings)
 RAILWAY_API_TOKEN=<your-project-token>
@@ -138,7 +138,7 @@ PATRONI_NAME=postgres-1
 
 # Reference shared variables
 PATRONI_SCOPE=${{shared.PATRONI_SCOPE}}
-PATRONI_ETCD_HOSTS=${{shared.PATRONI_ETCD_HOSTS}}
+PATRONI_ETCD3_HOSTS=${{shared.PATRONI_ETCD3_HOSTS}}
 PATRONI_TTL=${{shared.PATRONI_TTL}}
 PATRONI_LOOP_WAIT=${{shared.PATRONI_LOOP_WAIT}}
 
@@ -379,7 +379,7 @@ Your application should automatically reconnect to the new primary (via pgpool).
 
 **Fix**:
 1. Verify all 3 etcd services are running
-2. Check `PATRONI_ETCD_HOSTS` variable matches etcd service names
+2. Check `PATRONI_ETCD3_HOSTS` variable matches etcd service names
 3. Ensure private networking is enabled
 
 ### Pgpool Connection Refused

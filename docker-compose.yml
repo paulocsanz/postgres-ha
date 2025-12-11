@@ -82,7 +82,7 @@ services:
       - PATRONI_ENABLED=true
       - PATRONI_NAME=postgres-1
       - PATRONI_SCOPE=pg-ha-cluster
-      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - PATRONI_ETCD3_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
       - POSTGRES_USER=railway
       - POSTGRES_PASSWORD=railway
       - POSTGRES_DB=railway
@@ -107,7 +107,7 @@ services:
       - PATRONI_ENABLED=true
       - PATRONI_NAME=postgres-2
       - PATRONI_SCOPE=pg-ha-cluster
-      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - PATRONI_ETCD3_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
       - POSTGRES_USER=railway
       - POSTGRES_PASSWORD=railway
       - POSTGRES_DB=railway
@@ -132,7 +132,7 @@ services:
       - PATRONI_ENABLED=true
       - PATRONI_NAME=postgres-3
       - PATRONI_SCOPE=pg-ha-cluster
-      - PATRONI_ETCD_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
+      - PATRONI_ETCD3_HOSTS=etcd-1:2379,etcd-2:2379,etcd-3:2379
       - POSTGRES_USER=railway
       - POSTGRES_PASSWORD=railway
       - POSTGRES_DB=railway

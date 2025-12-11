@@ -63,7 +63,7 @@ PATRONI_REPLICATION_PASSWORD=<click "Generate">
 PATRONI_SCOPE=pg-ha-cluster
 PATRONI_TTL=30
 PATRONI_LOOP_WAIT=10
-PATRONI_ETCD_HOSTS=etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379
+PATRONI_ETCD3_HOSTS=etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379
 ```
 
 Click "Add" for each variable.
@@ -108,7 +108,7 @@ ETCD_INITIAL_ADVERTISE_PEER_URLS=http://etcd-3.railway.internal:2380
 ```bash
 PATRONI_NAME=postgres-1
 PATRONI_SCOPE=${{shared.PATRONI_SCOPE}}
-PATRONI_ETCD_HOSTS=${{shared.PATRONI_ETCD_HOSTS}}
+PATRONI_ETCD3_HOSTS=${{shared.PATRONI_ETCD3_HOSTS}}
 PATRONI_TTL=${{shared.PATRONI_TTL}}
 PATRONI_LOOP_WAIT=${{shared.PATRONI_LOOP_WAIT}}
 POSTGRES_USER=${{shared.POSTGRES_USER}}
@@ -230,7 +230,7 @@ Get the password from: Project → Variables → Shared → POSTGRES_PASSWORD
 
 **postgres won't start:**
 - Make sure all 3 etcd services are healthy first
-- Check `PATRONI_ETCD_HOSTS` matches the etcd service names
+- Check `PATRONI_ETCD3_HOSTS` matches the etcd service names
 
 **No replication:**
 - Verify `PATRONI_REPLICATION_PASSWORD` is set correctly

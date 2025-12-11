@@ -131,19 +131,24 @@ BEGIN
 END
 \$\$;
 
--- Create app database if configured and doesn't exist
-DO \$\$
-BEGIN
-    IF '${APP_DB}' = '' OR '${APP_DB}' = 'postgres' THEN
-        RAISE NOTICE 'App database not configured or is postgres, skipping';
-    ELSIF NOT EXISTS (SELECT FROM pg_database WHERE datname = '${APP_DB}') THEN
-        EXECUTE format('CREATE DATABASE %I', '${APP_DB}');
-        RAISE NOTICE 'Created app database: ${APP_DB}';
-    ELSE
-        RAISE NOTICE 'App database already exists: ${APP_DB}';
-    END IF;
-END
-\$\$;
+EOSQL
+
+# Create app database if configured (must be outside transaction/DO block)
+if [ -n "$APP_DB" ] && [ "$APP_DB" != "postgres" ]; then
+    echo "Post-bootstrap: checking app database ${APP_DB}..."
+    # Check if database exists first
+    DB_EXISTS=$(env -i PATH="$PATH" psql -h /var/run/postgresql -U "$SUPERUSER" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '${APP_DB}'")
+    if [ "$DB_EXISTS" != "1" ]; then
+        echo "Post-bootstrap: creating app database ${APP_DB}..."
+        env -i PATH="$PATH" psql -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$SUPERUSER" -d postgres -c "CREATE DATABASE \"${APP_DB}\""
+        echo "Post-bootstrap: created app database ${APP_DB}"
+    else
+        echo "Post-bootstrap: app database ${APP_DB} already exists"
+    fi
+fi
+
+# Continue with remaining SQL operations
+env -i PATH="$PATH" psql -v ON_ERROR_STOP=1 -h /var/run/postgresql -U "$SUPERUSER" -d postgres <<EOSQL
 
 -- Grant privileges on app database to app user
 DO \$\$

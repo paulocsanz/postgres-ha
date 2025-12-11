@@ -36,8 +36,8 @@ railway variables --set PATRONI_TTL=30
 echo "Setting PATRONI_LOOP_WAIT..."
 railway variables --set PATRONI_LOOP_WAIT=10
 
-echo "Setting PATRONI_ETCD_HOSTS..."
-railway variables --set PATRONI_ETCD_HOSTS="etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379"
+echo "Setting PATRONI_ETCD3_HOSTS..."
+railway variables --set PATRONI_ETCD3_HOSTS="etcd-1.railway.internal:2379,etcd-2.railway.internal:2379,etcd-3.railway.internal:2379"
 
 echo ""
 echo "✅ Shared variables set!"

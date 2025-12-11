@@ -16,7 +16,7 @@ echo "=== Patroni Runner ==="
 SCOPE="${PATRONI_SCOPE:-railway-pg-ha}"
 NAME="${PATRONI_NAME}"
 CONNECT_ADDRESS="${RAILWAY_PRIVATE_DOMAIN}"
-# Use PATRONI_ETCD3_HOSTS for v3 API (NOT PATRONI_ETCD_HOSTS which is v2)
+# Use PATRONI_ETCD3_HOSTS for v3 API
 ETCD_HOSTS="${PATRONI_ETCD3_HOSTS}"
 
 # Validate required env vars

@@ -9,7 +9,7 @@ railway service create postgres-3 2>/dev/null || echo "Service postgres-3 alread
 echo "Setting postgres-3 variables..."
 railway variables --service postgres-3 --set PATRONI_NAME=postgres-3
 railway variables --service postgres-3 --set 'PATRONI_SCOPE=${{shared.PATRONI_SCOPE}}'
-railway variables --service postgres-3 --set 'PATRONI_ETCD_HOSTS=${{shared.PATRONI_ETCD_HOSTS}}'
+railway variables --service postgres-3 --set 'PATRONI_ETCD3_HOSTS=${{shared.PATRONI_ETCD3_HOSTS}}'
 railway variables --service postgres-3 --set 'PATRONI_TTL=${{shared.PATRONI_TTL}}'
 railway variables --service postgres-3 --set 'PATRONI_LOOP_WAIT=${{shared.PATRONI_LOOP_WAIT}}'
 railway variables --service postgres-3 --set 'POSTGRES_USER=${{shared.POSTGRES_USER}}'

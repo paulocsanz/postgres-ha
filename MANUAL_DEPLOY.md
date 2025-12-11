@@ -123,7 +123,7 @@ railway up --detach
 Then update PostgreSQL to use single etcd:
 ```bash
 # In shared variables or per postgres service
-PATRONI_ETCD_HOSTS=etcd.railway.internal:2379
+PATRONI_ETCD3_HOSTS=etcd.railway.internal:2379
 ```
 
 This is NOT HA but will let you test the rest of the system.
