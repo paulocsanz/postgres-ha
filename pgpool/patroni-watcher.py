@@ -87,6 +87,15 @@ def get_pgpool_node_status(node_index):
     return None, None
 
 
+def get_pgpool_primary_index(backends):
+    """Get the index of the node pgpool thinks is primary"""
+    for backend in backends:
+        status, role = get_pgpool_node_status(backend["index"])
+        if status == 1 and role == 1:  # up and primary
+            return backend["index"]
+    return None
+
+
 def get_patroni_role(host):
     """Query Patroni REST API for node role (master/replica)"""
     try:
@@ -121,30 +130,74 @@ def get_cluster_state(backends):
 def reconcile_pgpool(backends, patroni_state):
     """
     Reconcile pgpool backend status with Patroni state.
-    Always checks and corrects state, not just on changes.
-    """
-    changes_made = False
 
+    Strategy:
+    1. Find the Patroni primary
+    2. If pgpool's primary doesn't match, cycle all nodes:
+       - Detach all non-primary nodes
+       - Ensure primary is attached
+       - Reattach standbys
+    3. Otherwise just ensure healthy nodes are attached
+    """
+    # Find Patroni primary
+    patroni_primary_idx = None
+    for idx, role in patroni_state.items():
+        if role == "primary":
+            patroni_primary_idx = idx
+            break
+
+    # Find pgpool's current primary
+    pgpool_primary_idx = get_pgpool_primary_index(backends)
+
+    # Check if we need to force a primary switch
+    if patroni_primary_idx is not None and pgpool_primary_idx != patroni_primary_idx:
+        patroni_primary_name = next((b["name"] for b in backends if b["index"] == patroni_primary_idx), f"node-{patroni_primary_idx}")
+        pgpool_primary_name = next((b["name"] for b in backends if b["index"] == pgpool_primary_idx), "none") if pgpool_primary_idx is not None else "none"
+
+        logger.warning(f"Primary mismatch! Patroni: {patroni_primary_name}, pgpool: {pgpool_primary_name}")
+        logger.info("Cycling all nodes to force primary update...")
+
+        # Step 1: Detach ALL nodes (forces pgpool to re-query roles on attach)
+        for backend in backends:
+            idx = backend["index"]
+            pgpool_status, _ = get_pgpool_node_status(idx)
+            if pgpool_status == 1:  # only detach if up
+                logger.info(f"Detaching {backend['name']}")
+                run_pcp_command("pcp_detach_node", "-n", str(idx))
+
+        time.sleep(0.5)  # Brief pause to let pgpool process detaches
+
+        # Step 2: Attach primary FIRST (so pgpool recognizes it as primary)
+        logger.info(f"Attaching primary {patroni_primary_name} first")
+        run_pcp_command("pcp_attach_node", "-n", str(patroni_primary_idx))
+
+        time.sleep(0.3)
+
+        # Step 3: Attach healthy standbys
+        for backend in backends:
+            idx = backend["index"]
+            if idx == patroni_primary_idx:
+                continue  # Already attached
+            if patroni_state.get(idx) in ("primary", "standby"):
+                logger.info(f"Attaching standby {backend['name']}")
+                run_pcp_command("pcp_attach_node", "-n", str(idx))
+
+        return  # Done with forced reconciliation
+
+    # Normal reconciliation - just ensure healthy nodes are attached
     for backend in backends:
         idx = backend["index"]
         patroni_role = patroni_state.get(idx)
-        pgpool_status, pgpool_role = get_pgpool_node_status(idx)
+        pgpool_status, _ = get_pgpool_node_status(idx)
 
-        # Node is healthy in Patroni
         if patroni_role in ("primary", "standby"):
-            # Attach if not up (status != 1)
             if pgpool_status != 1:
-                logger.info(f"Attaching {backend['name']} (patroni: {patroni_role}, pgpool_status: {pgpool_status})")
-                if run_pcp_command("pcp_attach_node", "-n", str(idx)):
-                    changes_made = True
+                logger.info(f"Attaching {backend['name']} (patroni: {patroni_role})")
+                run_pcp_command("pcp_attach_node", "-n", str(idx))
         else:
-            # Node is unhealthy in Patroni - detach if up
             if pgpool_status == 1:
-                logger.info(f"Detaching {backend['name']} (patroni: {patroni_role})")
-                if run_pcp_command("pcp_detach_node", "-n", str(idx)):
-                    changes_made = True
-
-    return changes_made
+                logger.info(f"Detaching {backend['name']} (unhealthy)")
+                run_pcp_command("pcp_detach_node", "-n", str(idx))
 
 
 def get_leader_name(patroni_state, backends):
