@@ -131,6 +131,16 @@ BEGIN
 END
 \$\$;
 
+-- Create postgres superuser for compatibility (many tools expect this user)
+DO \$\$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'postgres') THEN
+        EXECUTE format('CREATE ROLE postgres WITH SUPERUSER LOGIN PASSWORD %L', '${SUPERUSER_PASS}');
+        RAISE NOTICE 'Created postgres superuser for compatibility';
+    END IF;
+END
+\$\$;
+
 EOSQL
 
 # Create app database if configured (must be outside transaction/DO block)
