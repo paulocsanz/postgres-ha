@@ -38,7 +38,8 @@ if [ "${PATRONI_ENABLED:-false}" = "true" ]; then
     if [ ! -d "$DATA_DIR" ]; then
         sudo mkdir -p "$DATA_DIR"
     fi
-    sudo chown postgres:postgres "$DATA_DIR"
+    # Recursive chown - handles leftover root-owned files from failed bootstraps
+    sudo chown -R postgres:postgres "$DATA_DIR"
     sudo chmod 700 "$DATA_DIR"
 
     # Check for required passwords on fresh installs
