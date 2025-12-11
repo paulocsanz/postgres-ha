@@ -55,12 +55,13 @@ recovery_user = '${PGPOOL_POSTGRES_USERNAME:-postgres}'
 recovery_password = '${PGPOOL_POSTGRES_PASSWORD}'
 EOF
 
-# Create pool_hba.conf
+# Create pool_hba.conf in both locations (pgpool looks in /etc/)
 cat > /opt/bitnami/pgpool/conf/pool_hba.conf <<'POOL_HBA_EOF'
 local   all         all                               trust
 host    all         all         0.0.0.0/0             md5
 host    all         all         ::0/0                 md5
 POOL_HBA_EOF
+cp /opt/bitnami/pgpool/conf/pool_hba.conf /opt/bitnami/pgpool/etc/pool_hba.conf
 
 # Generate pool_passwd file for client authentication
 # MD5 format: md5 + md5(password + username)
