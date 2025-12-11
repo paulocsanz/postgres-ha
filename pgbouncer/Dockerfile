@@ -1,5 +1,7 @@
-FROM alpine:3.19
+ARG ALPINE_VERSION=3.19
+FROM alpine:${ALPINE_VERSION}
 
+# pgbouncer version determined by Alpine package
 RUN apk add --no-cache pgbouncer openssl
 
 # Create directories with proper ownership

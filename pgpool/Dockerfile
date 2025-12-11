@@ -1,4 +1,5 @@
-FROM railwayapp/pgpool:4
+ARG PGPOOL_VERSION=4
+FROM railwayapp/pgpool:${PGPOOL_VERSION}
 
 USER root
 

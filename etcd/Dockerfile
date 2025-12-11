@@ -1,7 +1,8 @@
+ARG ETCD_VERSION=3.5.16
 # Use alpine to get shell utilities
 FROM alpine:latest AS tools
 
-FROM quay.io/coreos/etcd:v3.5.16
+FROM quay.io/coreos/etcd:v${ETCD_VERSION}
 
 # Copy shell and utilities from alpine for our entrypoint script
 COPY --from=tools /bin/sh /bin/sh

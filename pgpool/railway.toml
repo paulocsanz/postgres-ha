@@ -6,3 +6,5 @@ watchPatterns = ["pgpool/**"]
 [deploy]
 restartPolicyType = "always"
 multiRegionConfig = { "us-east4-eqdc4a" = { numReplicas = 3 } }
+healthcheckPath = "/health"
+healthcheckTimeout = 10

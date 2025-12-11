@@ -1,4 +1,5 @@
-FROM haproxy:2.9-alpine
+ARG HAPROXY_VERSION=2.9
+FROM haproxy:${HAPROXY_VERSION}-alpine
 
 USER root
 

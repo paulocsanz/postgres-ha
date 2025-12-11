@@ -12,6 +12,8 @@ import signal
 import subprocess
 import logging
 import requests
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,9 +29,11 @@ PGPOOL_CONF_DIR = os.environ.get("PGPOOL_CONF_DIR", "/opt/bitnami/pgpool/conf")
 PGPOOL_BIN_DIR = os.environ.get("PGPOOL_BIN_DIR", "/opt/bitnami/pgpool/bin")
 POLL_INTERVAL = 2
 PATRONI_TIMEOUT = 3
+HEALTH_PORT = int(os.environ.get("HEALTH_PORT", "8080"))
 
-# Global pgpool process
+# Global state
 pgpool_process = None
+health_status = {"ready": False, "has_primary": False, "message": "starting"}
 
 
 def parse_backend_nodes():
@@ -260,6 +264,39 @@ def wait_for_pcp_ready(timeout=60):
     return False
 
 
+class HealthHandler(BaseHTTPRequestHandler):
+    """HTTP handler for health checks"""
+
+    def log_message(self, format, *args):
+        # Suppress default logging
+        pass
+
+    def do_GET(self):
+        if self.path == "/health" or self.path == "/":
+            if health_status["ready"] and health_status["has_primary"]:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK")
+            else:
+                self.send_response(503)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                msg = health_status.get("message", "not ready")
+                self.wfile.write(msg.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def start_health_server():
+    """Start HTTP health server in a background thread"""
+    server = HTTPServer(("0.0.0.0", HEALTH_PORT), HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    logger.info(f"Health server started on port {HEALTH_PORT}")
+
+
 def shutdown(signum, frame):
     """Handle shutdown signals"""
     global pgpool_process
@@ -278,7 +315,7 @@ def shutdown(signum, frame):
 
 
 def main():
-    global pgpool_process
+    global pgpool_process, health_status
 
     if not PCP_PASSWORD:
         logger.error("PGPOOL_ADMIN_PASSWORD not set")
@@ -287,6 +324,9 @@ def main():
     # Setup signal handlers
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
+
+    # Start health server early so Railway can probe
+    start_health_server()
 
     backends = parse_backend_nodes()
     logger.info(f"Monitoring backends: {[b['name'] for b in backends]}")
@@ -297,6 +337,7 @@ def main():
     # Wait for PCP to be ready
     if not wait_for_pcp_ready():
         logger.error("Failed to start pgpool")
+        health_status = {"ready": False, "has_primary": False, "message": "pgpool failed to start"}
         if pgpool_process:
             pgpool_process.kill()
         sys.exit(1)
@@ -308,12 +349,21 @@ def main():
         try:
             # Check pgpool health first
             if not check_pgpool_health():
+                health_status = {"ready": False, "has_primary": False, "message": "pgpool died"}
                 logger.error("Pgpool died, exiting...")
                 sys.exit(1)
 
             # Get current Patroni state
             patroni_state = get_cluster_state(backends)
             leader_name = get_leader_name(patroni_state, backends)
+
+            # Update health status
+            has_primary = leader_name is not None
+            health_status = {
+                "ready": True,
+                "has_primary": has_primary,
+                "message": "no primary" if not has_primary else "ok"
+            }
 
             # Log leader changes
             if leader_name != last_leader:
@@ -340,6 +390,7 @@ def main():
             logger.error(f"Error in main loop: {e}")
             # Don't exit on transient errors, but check pgpool is still alive
             if not check_pgpool_health():
+                health_status = {"ready": False, "has_primary": False, "message": "pgpool died"}
                 logger.error("Pgpool died during error recovery, exiting...")
                 sys.exit(1)
             time.sleep(POLL_INTERVAL)
