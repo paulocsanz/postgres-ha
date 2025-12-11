@@ -156,14 +156,18 @@ bootstrap:
   pg_hba:
     - local all all trust
     - hostssl replication ${REPL_USER} 0.0.0.0/0 scram-sha-256
+    - hostssl replication ${REPL_USER} ::/0 scram-sha-256
     - hostssl all all 0.0.0.0/0 scram-sha-256
+    - hostssl all all ::/0 scram-sha-256
     - host replication ${REPL_USER} 0.0.0.0/0 scram-sha-256
+    - host replication ${REPL_USER} ::/0 scram-sha-256
     - host all all 0.0.0.0/0 scram-sha-256
+    - host all all ::/0 scram-sha-256
 
   post_bootstrap: /post_bootstrap.sh
 
 postgresql:
-  listen: 0.0.0.0:5432
+  listen: "*:5432"
   connect_address: ${CONNECT_ADDRESS}:5432
   data_dir: ${DATA_DIR}
   pgpass: /tmp/pgpass
