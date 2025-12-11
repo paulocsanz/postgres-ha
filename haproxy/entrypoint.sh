@@ -38,7 +38,7 @@ generate_servers() {
 
         # Extract short name from hostname (e.g., postgres-1 from postgres-1.railway.internal)
         name=$(echo "$host" | cut -d. -f1)
-        echo "    server ${name} ${host}:${pgport} check port ${patroniport}"
+        echo "    server ${name} ${host}:${pgport} check port ${patroniport} resolvers railway resolve-prefer ipv4"
     done
 }
 
@@ -71,7 +71,6 @@ resolvers railway
     hold timeout    10s
     hold valid      10s
     hold obsolete   10s
-    resolve-prefer ipv4
 
 # Stats page for monitoring
 listen stats
@@ -89,7 +88,7 @@ frontend postgresql_primary
 backend postgresql_primary_backend
     option httpchk GET /primary
     http-check expect status 200
-    default-server inter ${HAPROXY_CHECK_INTERVAL} fall 3 rise 2 on-marked-down shutdown-sessions resolvers railway init-addr last,libc,none
+    default-server inter ${HAPROXY_CHECK_INTERVAL} fall 3 rise 2 on-marked-down shutdown-sessions
 ${PRIMARY_SERVERS}
 
 # Replica PostgreSQL (read-only)
@@ -101,7 +100,7 @@ backend postgresql_replicas_backend
     balance roundrobin
     option httpchk GET /replica
     http-check expect status 200
-    default-server inter ${HAPROXY_CHECK_INTERVAL} fall 3 rise 2 on-marked-down shutdown-sessions resolvers railway init-addr last,libc,none
+    default-server inter ${HAPROXY_CHECK_INTERVAL} fall 3 rise 2 on-marked-down shutdown-sessions
 ${REPLICA_SERVERS}
 EOF
 
