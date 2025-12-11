@@ -71,6 +71,7 @@ resolvers railway
     hold timeout    10s
     hold valid      10s
     hold obsolete   10s
+    resolve-prefer ipv4
 
 # Stats page for monitoring
 listen stats
