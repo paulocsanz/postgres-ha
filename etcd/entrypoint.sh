@@ -171,6 +171,15 @@ wait_for_leader() {
   return 1
 }
 
+# Check if we have valid local etcd data (WAL files exist)
+has_local_data() {
+  # Check for WAL directory with actual files
+  if [ -d "$DATA_DIR/member/wal" ] && [ "$(ls -A "$DATA_DIR/member/wal" 2>/dev/null)" ]; then
+    return 0
+  fi
+  return 1
+}
+
 # Add this node to an existing cluster as a learner (non-voting member)
 # On success, outputs the ETCD_INITIAL_CLUSTER value to use
 add_self_to_cluster() {
@@ -182,10 +191,18 @@ add_self_to_cluster() {
 
   # Check if already a member (in case of restart)
   if etcdctl member list --endpoints="$endpoint" 2>/dev/null | grep -q "$ETCD_NAME"; then
-    log "Already a member of the cluster"
-    # Build cluster string from member list for existing member
-    get_current_cluster "$leader"
-    return 0
+    # CRITICAL: Check if we actually have local data
+    # If volume was wiped but we're still registered, we need to remove and re-add
+    if ! has_local_data; then
+      log "WARNING: Registered as member but no local data (volume wiped?) - removing stale entry"
+      remove_stale_self "$endpoint"
+      # Continue to re-add as learner below
+    else
+      log "Already a member of the cluster with local data"
+      # Build cluster string from member list for existing member
+      get_current_cluster "$leader"
+      return 0
+    fi
   fi
 
   # Add as learner (non-voting) member - safer than direct voting member add
