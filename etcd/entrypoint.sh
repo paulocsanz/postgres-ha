@@ -217,7 +217,7 @@ while [ $attempt -le $MAX_RETRIES ]; do
       export ETCD_INITIAL_CLUSTER_STATE="new"
     fi
 
-    /usr/local/bin/etcd
+    /usr/local/bin/etcd --auto-compaction-retention=1
     EXIT_CODE=$?
   else
     # Non-leader: wait for leader, join existing cluster
@@ -246,7 +246,7 @@ while [ $attempt -le $MAX_RETRIES ]; do
       export ETCD_INITIAL_CLUSTER_STATE="existing"
     fi
 
-    /usr/local/bin/etcd
+    /usr/local/bin/etcd --auto-compaction-retention=1
     EXIT_CODE=$?
   fi
 
