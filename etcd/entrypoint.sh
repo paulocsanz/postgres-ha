@@ -241,6 +241,7 @@ get_current_cluster() {
 }
 
 # Get my member ID from etcd cluster
+# Args: $1 = endpoint to query (must be a voting member, not localhost on learners)
 get_my_member_id() {
   endpoint=$1
   # Member list format: id, status, name, peer_urls, client_urls, is_learner
@@ -254,6 +255,7 @@ get_my_member_id() {
 }
 
 # Check if this member is a learner
+# Args: $1 = endpoint to query (must be a voting member, not localhost on learners)
 is_learner() {
   endpoint=$1
   member_info=$(etcdctl member list --endpoints="$endpoint" -w simple 2>/dev/null | grep "$ETCD_NAME")
@@ -261,9 +263,40 @@ is_learner() {
   echo "$member_info" | grep -q "true$"
 }
 
+# Find a voting member endpoint to use for cluster operations
+# Learners can't handle most RPCs, so we need a voting member
+get_voting_member_endpoint() {
+  # Try each peer from initial cluster config
+  echo "$ETCD_INITIAL_CLUSTER" | tr ',' '\n' | while read -r entry; do
+    peer_name=$(echo "$entry" | cut -d'=' -f1)
+    peer_url=$(echo "$entry" | cut -d'=' -f2)
+    client_endpoint=$(echo "$peer_url" | sed 's/:2380/:2379/')
+
+    # Try to get member list from this endpoint
+    # If it works, this is a voting member
+    if etcdctl member list --endpoints="$client_endpoint" >/dev/null 2>&1; then
+      echo "$client_endpoint"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # Promote self from learner to voting member
+# Args: $1 = endpoint to use (must be a voting member, not localhost on learners)
 promote_self() {
   endpoint=$1
+
+  # If no endpoint provided or it's localhost, find a voting member
+  if [ -z "$endpoint" ] || [ "$endpoint" = "http://127.0.0.1:2379" ]; then
+    endpoint=$(get_voting_member_endpoint)
+    if [ -z "$endpoint" ]; then
+      log "ERROR: Could not find a voting member endpoint for promotion"
+      return 1
+    fi
+    log "Using voting member endpoint for promotion: $endpoint"
+  fi
+
   member_id=$(get_my_member_id "$endpoint")
 
   if [ -z "$member_id" ]; then
@@ -277,7 +310,7 @@ promote_self() {
     return 0
   fi
 
-  log "Promoting self (ID: $member_id) from learner to voting member..."
+  log "Promoting self (ID: $member_id) from learner to voting member via $endpoint..."
 
   output=$(etcdctl member promote "$member_id" --endpoints="$endpoint" 2>&1)
   result=$?
