@@ -99,19 +99,26 @@ check_existing_cluster() {
 }
 
 # Remove stale member entry for this node (used during recovery)
+# Searches by both name AND peer URL since unstarted members have no name
 remove_stale_self() {
   endpoint=$1
+  my_peer_url=$(get_my_peer_url)
 
   log "Checking for stale member entry to remove..."
 
-  # Get member ID for our name (if exists)
-  member_id=$(etcdctl member list --endpoints="$endpoint" -w simple 2>/dev/null | while read -r line; do
+  # Get member ID by name OR peer URL (unstarted members have empty name)
+  member_id=""
+  while IFS= read -r line; do
     name=$(echo "$line" | cut -d',' -f3 | tr -d ' ')
-    if [ "$name" = "$ETCD_NAME" ]; then
-      echo "$line" | cut -d',' -f1 | tr -d ' '
-      return
+    peer_url=$(echo "$line" | cut -d',' -f4 | tr -d ' ')
+
+    if [ "$name" = "$ETCD_NAME" ] || [ "$peer_url" = "$my_peer_url" ]; then
+      member_id=$(echo "$line" | cut -d',' -f1 | tr -d ' ')
+      break
     fi
-  done)
+  done <<EOF
+$(etcdctl member list --endpoints="$endpoint" -w simple 2>/dev/null)
+EOF
 
   if [ -n "$member_id" ]; then
     log "Found stale member entry (ID: $member_id), removing..."
@@ -189,13 +196,19 @@ add_self_to_cluster() {
 
   log "Adding self ($ETCD_NAME) as learner to cluster via $endpoint..."
 
-  # Check if already a member (in case of restart)
-  if etcdctl member list --endpoints="$endpoint" 2>/dev/null | grep -q "$ETCD_NAME"; then
+  # Check if already a member (by name or peer URL)
+  if etcdctl member list --endpoints="$endpoint" 2>/dev/null | grep -qE "$ETCD_NAME|$my_peer_url"; then
     # CRITICAL: Check if we actually have local data
     # If volume was wiped but we're still registered, we need to remove and re-add
     if ! has_local_data; then
       log "WARNING: Registered as member but no local data (volume wiped?) - removing stale entry"
       remove_stale_self "$endpoint"
+      # CRITICAL: Also clean any partial data (e.g., snap/db with old member ID)
+      # Otherwise etcd will fail with "data-dir used by this member must be removed"
+      if [ -d "$DATA_DIR" ] && [ "$(ls -A "$DATA_DIR" 2>/dev/null)" ]; then
+        log "Cleaning partial/stale data directory..."
+        rm -rf "${DATA_DIR:?}"/*
+      fi
       # Continue to re-add as learner below
     else
       log "Already a member of the cluster with local data"
