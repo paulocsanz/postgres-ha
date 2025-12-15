@@ -1,39 +1,39 @@
-import { test, expect } from "@playwright/test";
-import { RailwayAPI } from "../src/utils/railway-api";
-import { DatabaseClient } from "../src/utils/database";
-import { retry, sleep } from "../src/utils/retry";
+#!/usr/bin/env npx ts-node
+/**
+ * Patroni HA Failover E2E Test
+ *
+ * This test deploys the postgres-ha template, verifies failover works correctly,
+ * and cleans up afterwards. Exit code 0 = success, 1 = failure.
+ */
 
-test.describe("PostgreSQL HA Failover Test", () => {
-  let api: RailwayAPI;
-  let projectId: string;
-  let environmentId: string;
-  let databaseUrl: string;
-  let testDataId: number;
-  const TEST_DATA = `failover-test-${Date.now()}`;
+import { config } from "dotenv";
+import { RailwayAPI } from "./utils/railway-api";
+import { DatabaseClient } from "./utils/database";
+import { retry, sleep } from "./utils/retry";
 
-  test.beforeAll(async () => {
-    const token = process.env.E2E_TOKEN_PRODUCTION;
-    if (!token) {
-      throw new Error("E2E_TOKEN_PRODUCTION env var is not set");
-    }
-    api = new RailwayAPI(token);
-  });
+config();
 
-  // Cleanup after each test using API
-  test.afterEach(async () => {
-    if (projectId && api) {
-      console.log(`Cleaning up project via API: ${projectId}`);
-      try {
-        await api.deleteProject(projectId);
-        console.log("Project deleted successfully");
-      } catch (error) {
-        console.log(`Cleanup failed: ${error}`);
-      }
-    }
-  });
+// Simple assertion helper
+function assert(condition: boolean, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(`Assertion failed: ${message}`);
+  }
+}
 
-  test("should complete full failover cycle", async () => {
-    test.setTimeout(900000); // 15 minutes
+async function runFailoverTest(): Promise<void> {
+  const token = process.env.E2E_TOKEN_PRODUCTION;
+  if (!token) {
+    throw new Error("E2E_TOKEN_PRODUCTION env var is not set");
+  }
+
+  const api = new RailwayAPI(token);
+  let projectId: string | null = null;
+
+  try {
+    const TEST_DATA = `failover-test-${Date.now()}`;
+    let environmentId: string;
+    let databaseUrl: string;
+    let testDataId: number;
 
     // =========================================
     // Step 1: Deploy postgres-ha template
@@ -48,7 +48,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
     // =========================================
     console.log("Step 2: Waiting for services to be ready...");
 
-    // Get project info including services and environments
     let project: any;
     let services: any[] = [];
     let haproxyService: any;
@@ -56,7 +55,7 @@ test.describe("PostgreSQL HA Failover Test", () => {
 
     await retry(
       async () => {
-        project = await api.getProject(projectId);
+        project = await api.getProject(projectId!);
         services = project.services.edges.map((e: any) => e.node);
 
         if (services.length < 7) {
@@ -75,12 +74,12 @@ test.describe("PostgreSQL HA Failover Test", () => {
     environmentId = project.environments.edges[0]?.node.id;
     console.log(`Found ${services.length} services, environment: ${environmentId}`);
 
-    // Wait for HAProxy deployment to be successful
+    // Wait for HAProxy deployment
     console.log("Waiting for HAProxy deployment...");
     await api.waitForDeployment(haproxyService.id, environmentId, "SUCCESS", 300000);
     console.log("HAProxy is deployed");
 
-    // Wait for at least one postgres to be ready
+    // Wait for postgres deployments
     console.log("Waiting for Postgres deployments...");
     for (const pg of postgresServices) {
       try {
@@ -148,7 +147,7 @@ test.describe("PostgreSQL HA Failover Test", () => {
       console.log(`Test data written with ID: ${testDataId}`);
 
       const verified = await db.verifyTestData(testDataId, TEST_DATA);
-      expect(verified).toBe(true);
+      assert(verified, "Test data verification failed");
       console.log("Test data verified");
     } finally {
       await db.disconnect();
@@ -159,22 +158,18 @@ test.describe("PostgreSQL HA Failover Test", () => {
     // =========================================
     console.log("Step 6: Identifying and removing primary...");
 
-    // Query Patroni REST API on each postgres node to find the leader
-    // Create TCP proxies to Patroni port (8008) for each postgres service
     let primaryService: any = null;
 
     for (const pg of postgresServices) {
-      // Check if TCP proxy exists for Patroni port, create if not
       let patroniProxies = await api.getTcpProxies(pg.id, environmentId);
       let patroniProxy = patroniProxies.find((p) => p.applicationPort === 8008);
 
       if (!patroniProxy) {
         console.log(`Creating Patroni TCP proxy for ${pg.name}...`);
         patroniProxy = await api.createTcpProxy(pg.id, environmentId, 8008);
-        await sleep(5000); // Wait for proxy to be ready
+        await sleep(5000);
       }
 
-      // Query Patroni API to check if this node is the leader
       try {
         const response = await fetch(
           `http://${patroniProxy.domain}:${patroniProxy.proxyPort}/cluster`,
@@ -183,10 +178,8 @@ test.describe("PostgreSQL HA Failover Test", () => {
         const cluster = await response.json();
         console.log(`${pg.name} cluster info:`, JSON.stringify(cluster.members?.map((m: any) => ({ name: m.name, role: m.role })) || []));
 
-        // Find the leader in the cluster - we can get this from any node
         const leader = cluster.members?.find((m: any) => m.role === "leader");
         if (leader) {
-          // Find the service that matches the leader name
           const leaderService = postgresServices.find(
             (s: any) => leader.name === s.name || leader.name === s.name.replace(/-/g, "")
           );
@@ -207,7 +200,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
 
     console.log(`Primary identified as: ${primaryService.name}`);
 
-    // Get the latest deployment for the primary and remove it
     const primaryDeployments = await api.getServiceDeployments(primaryService.id, environmentId);
     const primaryDeployment = primaryDeployments.find((d) => d.status === "SUCCESS");
 
@@ -215,34 +207,26 @@ test.describe("PostgreSQL HA Failover Test", () => {
       throw new Error("No active deployment found for primary");
     }
 
-    // Start a long-running query BEFORE killing the primary
-    // This query should fail when the primary dies
+    // Start long-running query before killing primary
     console.log("Starting long-running query on primary...");
     const longQueryDb = new DatabaseClient(databaseUrl);
     await longQueryDb.connect(1, 0);
 
-    // Start pg_sleep in background - this should fail when primary dies
     let queryFailed = false;
     let queryError: string | null = null;
-    const sleepPromise = longQueryDb.query("SELECT pg_sleep(120)")
-      .then(() => {
-        queryFailed = false;
-      })
-      .catch((err) => {
-        queryFailed = true;
-        queryError = err.message;
-      });
+    longQueryDb.query("SELECT pg_sleep(120)")
+      .then(() => { queryFailed = false; })
+      .catch((err) => { queryFailed = true; queryError = err.message; });
 
-    // Give the query a moment to start
     await sleep(2000);
 
-    // Now remove the primary (don't await - let it run in parallel with monitoring)
+    // Remove the primary
     console.log(`Removing deployment: ${primaryDeployment.id}`);
     const removePromise = api.removeDeployment(primaryDeployment.id)
       .then(() => console.log("Primary deployment removed"))
       .catch((err) => console.log(`Remove deployment error (may be expected): ${err.message}`));
 
-    // Wait for the long-running query to fail (with timeout)
+    // Wait for long-running query to fail
     console.log("Waiting for long-running query to fail...");
 
     const startWait = Date.now();
@@ -254,7 +238,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
       await sleep(1000);
     }
 
-    // Wait for remove to complete too
     await removePromise;
 
     if (!queryFailed) {
@@ -268,11 +251,10 @@ test.describe("PostgreSQL HA Failover Test", () => {
     }
 
     // =========================================
-    // Step 7: Verify connection breaks during failover
+    // Step 7: Verify failover via Patroni
     // =========================================
-    console.log("Step 7: Verifying connection breaks during failover...");
+    console.log("Step 7: Verifying failover via Patroni...");
 
-    // Get Patroni proxy for a remaining node to monitor cluster state
     const remainingNode = postgresServices.find((pg: any) => pg.id !== primaryService.id);
     const remainingProxies = await api.getTcpProxies(remainingNode.id, environmentId);
     let patroniProxy = remainingProxies.find((p: any) => p.applicationPort === 8008);
@@ -281,9 +263,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
       await sleep(5000);
     }
 
-    // Poll until we see: connection failure, read-only, or Patroni shows new leader
-    let sawFailure = false;
-    let sawReadOnly = false;
     let sawNewLeader = false;
     let newLeaderName: string | null = null;
     const maxWaitMs = 120000;
@@ -291,7 +270,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
     const removedNodeName = primaryService.name.replace(/-/g, "");
 
     while (Date.now() - startTime < maxWaitMs) {
-      // Check Patroni cluster state
       try {
         const response = await fetch(
           `http://${patroniProxy.domain}:${patroniProxy.proxyPort}/cluster`,
@@ -304,6 +282,7 @@ test.describe("PostgreSQL HA Failover Test", () => {
           sawNewLeader = true;
           newLeaderName = leader.name;
           console.log(`Patroni shows new leader: ${leader.name} (removed: ${removedNodeName})`);
+          break;
         } else if (leader) {
           console.log(`Patroni still shows old leader: ${leader.name}`);
         } else {
@@ -311,41 +290,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
         }
       } catch (e: any) {
         console.log(`Patroni check failed: ${e.message}`);
-      }
-
-      // Check database connection and writes
-      const checkDb = new DatabaseClient(databaseUrl);
-      try {
-        await checkDb.connect(1, 0);
-        const isReadOnly = await checkDb.isReadOnly();
-
-        if (isReadOnly) {
-          sawReadOnly = true;
-          console.log("HAProxy connection is read-only - failover in progress");
-          await checkDb.disconnect();
-          if (sawNewLeader) break;
-        } else {
-          // Try a write
-          try {
-            await checkDb.query("INSERT INTO failover_test (data) VALUES ($1)", [`failover-check-${Date.now()}`]);
-            if (sawNewLeader) {
-              console.log("Write succeeds to new leader - failover complete");
-              await checkDb.disconnect();
-              break;
-            }
-            console.log("Write succeeds - waiting for failover...");
-          } catch (writeErr: any) {
-            console.log(`Write failed: ${writeErr.message}`);
-            sawFailure = true;
-            await checkDb.disconnect();
-            if (sawNewLeader) break;
-          }
-        }
-        await checkDb.disconnect();
-      } catch (e: any) {
-        sawFailure = true;
-        console.log(`Connection failed: ${e.message}`);
-        if (sawNewLeader) break;
       }
 
       await sleep(3000);
@@ -358,9 +302,9 @@ test.describe("PostgreSQL HA Failover Test", () => {
     console.log(`Confirmed: Failover complete. New leader: ${newLeaderName}`);
 
     // =========================================
-    // Step 8: Wait for failover and reconnect to new primary
+    // Step 8: Reconnect to new primary
     // =========================================
-    console.log("Step 8: Waiting for failover to complete...");
+    console.log("Step 8: Reconnecting to new primary...");
 
     const failoverDb = new DatabaseClient(databaseUrl);
 
@@ -378,31 +322,6 @@ test.describe("PostgreSQL HA Failover Test", () => {
 
     console.log("Successfully reconnected to new primary after failover");
 
-    // Verify the new primary is NOT the one we removed
-    for (const pg of postgresServices) {
-      if (pg.id === primaryService.id) continue; // Skip the removed one
-
-      const proxies = await api.getTcpProxies(pg.id, environmentId);
-      const patroniProxy = proxies.find((p: any) => p.applicationPort === 8008);
-      if (!patroniProxy) continue;
-
-      try {
-        const response = await fetch(
-          `http://${patroniProxy.domain}:${patroniProxy.proxyPort}/cluster`,
-          { signal: AbortSignal.timeout(5000) }
-        );
-        const cluster = await response.json();
-        const newLeader = cluster.members?.find((m: any) => m.role === "leader");
-        if (newLeader) {
-          console.log(`New leader confirmed: ${newLeader.name} (was: ${primaryService.name})`);
-          expect(newLeader.name).not.toBe(primaryService.name.replace(/-/g, ""));
-          break;
-        }
-      } catch {
-        // Ignore errors, try next node
-      }
-    }
-
     // =========================================
     // Step 9: Verify data integrity
     // =========================================
@@ -410,11 +329,11 @@ test.describe("PostgreSQL HA Failover Test", () => {
 
     try {
       const dataVerified = await failoverDb.verifyTestData(testDataId, TEST_DATA);
-      expect(dataVerified).toBe(true);
+      assert(dataVerified, "Data integrity check failed - test data not found after failover");
       console.log("Data integrity verified");
 
       const newDataId = await failoverDb.insertTestData(`post-failover-${Date.now()}`);
-      expect(newDataId).toBeGreaterThan(0);
+      assert(newDataId > 0, "Post-failover write failed");
       console.log(`Post-failover write successful (ID: ${newDataId})`);
     } finally {
       await failoverDb.disconnect();
@@ -423,5 +342,28 @@ test.describe("PostgreSQL HA Failover Test", () => {
     console.log("===========================================");
     console.log("FAILOVER TEST COMPLETED SUCCESSFULLY");
     console.log("===========================================");
+
+  } finally {
+    // Always cleanup
+    if (projectId) {
+      console.log(`Cleaning up project: ${projectId}`);
+      try {
+        await api.deleteProject(projectId);
+        console.log("Project deleted successfully");
+      } catch (error) {
+        console.log(`Cleanup failed: ${error}`);
+      }
+    }
+  }
+}
+
+// Run the test
+runFailoverTest()
+  .then(() => {
+    console.log("\nTest passed!");
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error("\nTest failed:", error.message);
+    process.exit(1);
   });
-});

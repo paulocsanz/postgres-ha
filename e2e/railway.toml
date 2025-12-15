@@ -1,0 +1,7 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "e2e/Dockerfile"
+
+[deploy]
+restartPolicyType = "always"
+cronSchedule = "0 6 * * *"

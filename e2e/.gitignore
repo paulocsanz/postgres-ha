@@ -1,6 +1,3 @@
 node_modules/
 dist/
 .env
-playwright/.auth/*.json
-playwright-report/
-test-results/
