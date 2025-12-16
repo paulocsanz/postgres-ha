@@ -52,17 +52,18 @@ BOOTSTRAP_MARKER="$VOLUME_ROOT/.patroni_bootstrap_complete"
 
 HAS_VALID_DATA=false
 
-# When adopting existing data, always ensure pg_hba.conf has replication entries
+# When adopting existing data, always ensure pg_hba.conf has replication entries for our user
 # This runs on every startup to handle cases where marker exists but pg_hba wasn't updated
 if [ "${PATRONI_ADOPT_EXISTING_DATA}" = "true" ] && [ -f "$DATA_DIR/pg_hba.conf" ]; then
     PG_HBA="$DATA_DIR/pg_hba.conf"
-    echo "Checking pg_hba.conf for replication support..."
+    echo "Checking pg_hba.conf for replication support (user: ${REPL_USER})..."
 
-    # Check if replication entries already exist
-    if ! grep -q "^host.*replication" "$PG_HBA" && ! grep -q "^hostssl.*replication" "$PG_HBA"; then
-        echo "Adding replication entries to pg_hba.conf..."
+    # Check if replication entries exist for OUR SPECIFIC USER
+    # Previous runs might have added entries for wrong user (e.g. replicator vs postgres)
+    if ! grep -q "replication.*${REPL_USER}" "$PG_HBA"; then
+        echo "Adding replication entries for user ${REPL_USER} to pg_hba.conf..."
         {
-            echo "# Replication entries added by Patroni migration"
+            echo "# Replication entries added by Patroni migration for user ${REPL_USER}"
             echo "hostssl replication ${REPL_USER} 0.0.0.0/0 scram-sha-256"
             echo "hostssl replication ${REPL_USER} ::/0 scram-sha-256"
             echo "host replication ${REPL_USER} 0.0.0.0/0 scram-sha-256"
@@ -72,9 +73,9 @@ if [ "${PATRONI_ADOPT_EXISTING_DATA}" = "true" ] && [ -f "$DATA_DIR/pg_hba.conf"
         } > "$PG_HBA.new"
         mv "$PG_HBA.new" "$PG_HBA"
         chmod 600 "$PG_HBA"
-        echo "pg_hba.conf updated with replication entries"
+        echo "pg_hba.conf updated with replication entries for ${REPL_USER}"
     else
-        echo "Replication entries already exist in pg_hba.conf"
+        echo "Replication entries for ${REPL_USER} already exist in pg_hba.conf"
     fi
 fi
 
