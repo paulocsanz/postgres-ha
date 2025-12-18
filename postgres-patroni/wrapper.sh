@@ -36,10 +36,16 @@ if [ "${PATRONI_ENABLED:-false}" = "true" ]; then
     # Ensure data directory exists and has correct permissions (Railway mounts as root)
     DATA_DIR="$EXPECTED_VOLUME_MOUNT_PATH"
     if [ ! -d "$DATA_DIR" ]; then
+        echo "Creating data directory..."
         sudo mkdir -p "$DATA_DIR"
     fi
     # Recursive chown - handles leftover root-owned files from failed bootstraps
-    sudo chown -R postgres:postgres "$DATA_DIR"
+    # Use timeout to prevent hang if volume has issues
+    echo "Setting data directory ownership..."
+    if ! timeout 120 sudo chown -R postgres:postgres "$DATA_DIR"; then
+        echo "ERROR: chown timed out after 120s - volume may have issues"
+        exit 1
+    fi
     sudo chmod 700 "$DATA_DIR"
 
     # Check for required passwords on fresh installs
@@ -60,15 +66,15 @@ if [ "${PATRONI_ENABLED:-false}" = "true" ]; then
         echo "SSL certificates missing, generating..."
         bash "$INIT_SSL_SCRIPT"
     else
-        # Check/renew existing SSL certs
+        # Check/renew existing SSL certs (with timeout to prevent hangs)
         # Regenerate if the certificate is not a x509v3 certificate
-        if ! openssl x509 -noout -text -in "$SSL_DIR/server.crt" | grep -q "DNS:localhost"; then
+        if ! timeout 30 openssl x509 -noout -text -in "$SSL_DIR/server.crt" 2>/dev/null | grep -q "DNS:localhost"; then
             echo "Did not find a x509v3 certificate, regenerating certificates..."
             bash "$INIT_SSL_SCRIPT"
         fi
 
         # Regenerate if the certificate has expired or will expire (30 days)
-        if ! openssl x509 -checkend 2592000 -noout -in "$SSL_DIR/server.crt"; then
+        if ! timeout 30 openssl x509 -checkend 2592000 -noout -in "$SSL_DIR/server.crt" 2>/dev/null; then
             echo "Certificate has or will expire soon, regenerating certificates..."
             bash "$INIT_SSL_SCRIPT"
         fi
