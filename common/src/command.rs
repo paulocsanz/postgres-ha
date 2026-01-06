@@ -50,12 +50,11 @@ pub async fn run_checked(cmd: &str, args: &[&str]) -> Result<String> {
     if output.success {
         Ok(output.stdout)
     } else {
-        Err(anyhow!(
-            "{} failed (exit {}): {}",
-            cmd,
-            output.code.unwrap_or(-1),
-            output.stderr
-        ))
+        let code = output
+            .code
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "signal".to_string());
+        Err(anyhow!("{} failed (exit {}): {}", cmd, code, output.stderr))
     }
 }
 

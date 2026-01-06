@@ -106,8 +106,8 @@ async fn main() -> Result<()> {
             return Ok(());
         }
 
-        let exit_code = status.code().unwrap_or(-1);
-        info!(exit_code, "etcd exited");
+        let exit_code = status.code();
+        info!(exit_code = ?exit_code, "etcd exited");
 
         // Handle incomplete bootstrap
         let marker_exists = Path::new(&config.bootstrap_marker()).exists();
