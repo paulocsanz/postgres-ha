@@ -6,7 +6,7 @@ use crate::cluster::{
     add_self_to_cluster, check_cluster_health, clear_directory, get_current_cluster,
     has_local_data, promote_self, remove_stale_self,
 };
-use crate::config::{get_leader_endpoint, get_my_peer_url, parse_initial_cluster, Config};
+use crate::config::{get_leader_endpoint, get_my_peer_url, parse_initial_cluster, peer_to_client_url, Config};
 use anyhow::{anyhow, Result};
 use common::{etcdctl, Telemetry, TelemetryEvent};
 use std::path::Path;
@@ -24,7 +24,7 @@ pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Res
             continue;
         }
 
-        let client_endpoint = peer_url.replace(":2380", ":2379");
+        let client_endpoint = peer_to_client_url(peer_url);
         info!(peer = %name, endpoint = %client_endpoint, "Checking peer");
 
         if etcdctl(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
@@ -69,7 +69,7 @@ pub async fn wait_for_any_healthy_peer(
                 continue;
             }
 
-            let client_endpoint = peer_url.replace(":2380", ":2379");
+            let client_endpoint = peer_to_client_url(peer_url);
             match etcdctl(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
                 .await
             {

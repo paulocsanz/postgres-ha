@@ -38,6 +38,11 @@ impl Config {
     }
 }
 
+/// Convert peer URL (port 2380) to client endpoint (port 2379)
+pub(crate) fn peer_to_client_url(peer_url: &str) -> String {
+    peer_url.replace(":2380", ":2379")
+}
+
 /// Parse the initial cluster string into a map of name -> peer_url
 ///
 /// Format: "name1=http://host1:2380,name2=http://host2:2380"
@@ -69,7 +74,7 @@ pub(crate) fn get_bootstrap_leader(initial_cluster: &str) -> Result<String> {
 /// Get leader's client endpoint (port 2379)
 pub(crate) fn get_leader_endpoint(initial_cluster: &str, leader: &str) -> Result<Option<String>> {
     let cluster = parse_initial_cluster(initial_cluster)?;
-    Ok(cluster.get(leader).map(|url| url.replace(":2380", ":2379")))
+    Ok(cluster.get(leader).map(|url| peer_to_client_url(url)))
 }
 
 /// Get my peer URL from ETCD_INITIAL_CLUSTER

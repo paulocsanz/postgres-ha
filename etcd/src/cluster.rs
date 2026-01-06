@@ -2,7 +2,7 @@
 //!
 //! Functions for managing cluster membership, starting etcd, and health checking.
 
-use crate::config::{get_my_peer_url, parse_initial_cluster, Config};
+use crate::config::{get_my_peer_url, parse_initial_cluster, peer_to_client_url, Config};
 use anyhow::{anyhow, Context, Result};
 use common::{etcdctl, Telemetry, TelemetryEvent};
 use std::path::Path;
@@ -74,7 +74,7 @@ pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Result<Option<
     let cluster = parse_initial_cluster(initial_cluster)?;
 
     for (_name, peer_url) in cluster.iter() {
-        let client_endpoint = peer_url.replace(":2380", ":2379");
+        let client_endpoint = peer_to_client_url(peer_url);
         if etcdctl(&["member", "list", &format!("--endpoints={}", client_endpoint)])
             .await
             .is_ok()
