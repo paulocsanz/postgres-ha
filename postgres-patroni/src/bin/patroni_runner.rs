@@ -6,6 +6,7 @@
 use anyhow::{anyhow, Context, Result};
 use common::{init_logging, ConfigExt, Telemetry, TelemetryEvent};
 use nix::sys::signal::{kill, Signal};
+use nix::sys::stat::{umask, Mode};
 use nix::unistd::Pid;
 use postgres_patroni::{pgdata, ssl_dir, volume_root};
 use std::env;
@@ -301,6 +302,10 @@ async fn main() -> Result<()> {
     env::remove_var("PGHOST");
     env::remove_var("PGPORT");
     env::remove_var("PGDATABASE");
+
+    // Set umask so pg_basebackup creates files with correct permissions (0600/0700)
+    // Without this, container environments may create files too permissive for PostgreSQL
+    umask(Mode::from_bits_truncate(0o077));
 
     let mut child = start_patroni().await?;
     let patroni_pid = child.id().ok_or_else(|| anyhow!("Failed to get Patroni PID"))?;
