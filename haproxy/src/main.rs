@@ -5,7 +5,7 @@
 //! TCP/HTTP health checks via Patroni.
 
 use anyhow::{anyhow, Context, Result};
-use std::env;
+use common::{init_logging, ConfigExt, Telemetry, TelemetryEvent};
 use std::fs;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
@@ -24,20 +24,19 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
-        let postgres_nodes =
-            env::var("POSTGRES_NODES").context("POSTGRES_NODES is required.\nFormat: hostname:pgport:patroniport,hostname:pgport:patroniport,...\nExample: postgres-1.railway.internal:5432:8008,postgres-2.railway.internal:5432:8008")?;
+        let postgres_nodes = String::env_required("POSTGRES_NODES").context(
+            "POSTGRES_NODES is required.\n\
+             Format: hostname:pgport:patroniport,hostname:pgport:patroniport,...\n\
+             Example: postgres-1.railway.internal:5432:8008,postgres-2.railway.internal:5432:8008",
+        )?;
 
         Ok(Self {
             postgres_nodes,
-            max_conn: env::var("HAPROXY_MAX_CONN").unwrap_or_else(|_| "1000".to_string()),
-            timeout_connect: env::var("HAPROXY_TIMEOUT_CONNECT")
-                .unwrap_or_else(|_| "10s".to_string()),
-            timeout_client: env::var("HAPROXY_TIMEOUT_CLIENT")
-                .unwrap_or_else(|_| "30m".to_string()),
-            timeout_server: env::var("HAPROXY_TIMEOUT_SERVER")
-                .unwrap_or_else(|_| "30m".to_string()),
-            check_interval: env::var("HAPROXY_CHECK_INTERVAL")
-                .unwrap_or_else(|_| "3s".to_string()),
+            max_conn: String::env_or("HAPROXY_MAX_CONN", "1000"),
+            timeout_connect: String::env_or("HAPROXY_TIMEOUT_CONNECT", "10s"),
+            timeout_client: String::env_or("HAPROXY_TIMEOUT_CLIENT", "30m"),
+            timeout_server: String::env_or("HAPROXY_TIMEOUT_SERVER", "30m"),
+            check_interval: String::env_or("HAPROXY_CHECK_INTERVAL", "3s"),
         })
     }
 }
@@ -63,7 +62,6 @@ fn parse_nodes(postgres_nodes: &str) -> Result<Vec<PostgresNode>> {
             }
 
             let host = parts[0].to_string();
-            // Extract short name from hostname (e.g., postgres-1 from postgres-1.railway.internal)
             let name = host.split('.').next().unwrap_or(&host).to_string();
 
             Ok(PostgresNode {
@@ -81,13 +79,11 @@ fn generate_server_entries(nodes: &[PostgresNode], single_node_mode: bool) -> St
         .iter()
         .map(|node| {
             if single_node_mode {
-                // Single node: skip Patroni health check, use TCP check on PostgreSQL port
                 format!(
                     "    server {} {}:{} check resolvers railway resolve-prefer ipv4",
                     node.name, node.host, node.pg_port
                 )
             } else {
-                // Multi-node: use Patroni health check
                 format!(
                     "    server {} {}:{} check port {} resolvers railway resolve-prefer ipv4",
                     node.name, node.host, node.pg_port, node.patroni_port
@@ -104,7 +100,7 @@ fn generate_config(config: &Config) -> Result<String> {
     let single_node_mode = node_count == 1;
 
     if single_node_mode {
-        info!("Single node mode: HAProxy will route directly to PostgreSQL without Patroni health checks");
+        info!("Single node mode: routing directly without Patroni health checks");
     }
 
     let server_entries = generate_server_entries(&nodes, single_node_mode);
@@ -207,36 +203,43 @@ frontend postgresql_replicas
 }
 
 fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into()),
-        )
-        .with_target(false)
-        .init();
+    let _guard = init_logging("haproxy");
 
+    let telemetry = Telemetry::from_env("haproxy");
     let config = Config::from_env()?;
+    let nodes = parse_nodes(&config.postgres_nodes)?;
+    let single_node_mode = nodes.len() == 1;
 
-    info!("Generating HAProxy config for nodes: {}", config.postgres_nodes);
+    info!(
+        nodes = %config.postgres_nodes,
+        count = nodes.len(),
+        "Generating HAProxy config"
+    );
+
+    // Send telemetry
+    telemetry.send(TelemetryEvent::HaproxyConfigGenerated {
+        nodes: nodes.iter().map(|n| n.name.clone()).collect(),
+    });
 
     let haproxy_config = generate_config(&config)?;
 
-    // Write config file
     fs::write(CONFIG_FILE, &haproxy_config).context("Failed to write HAProxy config")?;
+    info!(path = CONFIG_FILE, "Config written");
 
-    info!("HAProxy config written to {}", CONFIG_FILE);
-
-    // Log config using info! to avoid stdout/stderr interleaving in container logs
+    // Log config for debugging
     for line in haproxy_config.lines() {
         info!("  {}", line);
     }
+
+    telemetry.send(TelemetryEvent::HaproxyStarted {
+        node_count: nodes.len(),
+        single_node_mode,
+    });
 
     info!("Starting HAProxy...");
 
     // exec haproxy (replaces current process)
     let err = Command::new("haproxy").arg("-f").arg(CONFIG_FILE).exec();
 
-    // exec only returns if there was an error
     Err(anyhow!("Failed to exec haproxy: {}", err))
 }

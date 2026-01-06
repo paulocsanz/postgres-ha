@@ -1,10 +1,10 @@
 //! Patroni runner - Wrapper to run Patroni with proper setup
 //!
-//! This script generates the Patroni configuration and starts Patroni.
+//! Generates Patroni configuration and starts Patroni.
 //! Runs as PID 1 in container with built-in health monitoring.
-//! If Patroni dies or becomes unresponsive, exits to trigger container restart.
 
 use anyhow::{anyhow, Context, Result};
+use common::{init_logging, ConfigExt, Telemetry, TelemetryEvent};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use postgres_patroni::{pgdata, ssl_dir, volume_root};
@@ -45,24 +45,20 @@ struct Config {
 
 impl Config {
     fn from_env() -> Result<Self> {
-        let name = env::var("PATRONI_NAME").context("PATRONI_NAME must be set")?;
-        let connect_address =
-            env::var("RAILWAY_PRIVATE_DOMAIN").context("RAILWAY_PRIVATE_DOMAIN must be set")?;
-        let etcd_hosts =
-            env::var("PATRONI_ETCD3_HOSTS").context("PATRONI_ETCD3_HOSTS must be set")?;
+        let name = String::env_required("PATRONI_NAME")?;
+        let connect_address = String::env_required("RAILWAY_PRIVATE_DOMAIN")?;
+        let etcd_hosts = String::env_required("PATRONI_ETCD3_HOSTS")?;
 
         Ok(Self {
-            scope: env::var("PATRONI_SCOPE").unwrap_or_else(|_| "railway-pg-ha".to_string()),
+            scope: String::env_or("PATRONI_SCOPE", "railway-pg-ha"),
             name,
             connect_address,
             etcd_hosts,
-            superuser: env::var("PATRONI_SUPERUSER_USERNAME")
-                .unwrap_or_else(|_| "postgres".to_string()),
+            superuser: String::env_or("PATRONI_SUPERUSER_USERNAME", "postgres"),
             superuser_pass: env::var("PATRONI_SUPERUSER_PASSWORD").unwrap_or_default(),
-            repl_user: env::var("PATRONI_REPLICATION_USERNAME")
-                .unwrap_or_else(|_| "replicator".to_string()),
+            repl_user: String::env_or("PATRONI_REPLICATION_USERNAME", "replicator"),
             repl_pass: env::var("PATRONI_REPLICATION_PASSWORD").unwrap_or_default(),
-            app_user: env::var("POSTGRES_USER").unwrap_or_else(|_| "postgres".to_string()),
+            app_user: String::env_or("POSTGRES_USER", "postgres"),
             app_pass: env::var("POSTGRES_PASSWORD").unwrap_or_default(),
             app_db: env::var("POSTGRES_DB")
                 .or_else(|_| env::var("PGDATABASE"))
@@ -70,29 +66,14 @@ impl Config {
             data_dir: pgdata(),
             certs_dir: ssl_dir(),
             // Constraint: loop_wait + 2*retry_timeout <= ttl
-            // Default: 10 + 2*10 = 30 <= 30 ✓
-            ttl: env::var("PATRONI_TTL").unwrap_or_else(|_| "30".to_string()),
-            loop_wait: env::var("PATRONI_LOOP_WAIT").unwrap_or_else(|_| "10".to_string()),
-            retry_timeout: env::var("PATRONI_RETRY_TIMEOUT").unwrap_or_else(|_| "10".to_string()),
-            health_check_interval: env::var("PATRONI_HEALTH_CHECK_INTERVAL")
-                .unwrap_or_else(|_| "5".to_string())
-                .parse()
-                .unwrap_or(5),
-            health_check_timeout: env::var("PATRONI_HEALTH_CHECK_TIMEOUT")
-                .unwrap_or_else(|_| "5".to_string())
-                .parse()
-                .unwrap_or(5),
-            max_failures: env::var("PATRONI_MAX_HEALTH_FAILURES")
-                .unwrap_or_else(|_| "3".to_string())
-                .parse()
-                .unwrap_or(3),
-            startup_grace_period: env::var("PATRONI_STARTUP_GRACE_PERIOD")
-                .unwrap_or_else(|_| "60".to_string())
-                .parse()
-                .unwrap_or(60),
-            adopt_existing_data: env::var("PATRONI_ADOPT_EXISTING_DATA")
-                .map(|v| v.to_lowercase() == "true")
-                .unwrap_or(false),
+            ttl: String::env_or("PATRONI_TTL", "30"),
+            loop_wait: String::env_or("PATRONI_LOOP_WAIT", "10"),
+            retry_timeout: String::env_or("PATRONI_RETRY_TIMEOUT", "10"),
+            health_check_interval: u64::env_parse("PATRONI_HEALTH_CHECK_INTERVAL", 5),
+            health_check_timeout: u64::env_parse("PATRONI_HEALTH_CHECK_TIMEOUT", 5),
+            max_failures: u32::env_parse("PATRONI_MAX_HEALTH_FAILURES", 3),
+            startup_grace_period: u64::env_parse("PATRONI_STARTUP_GRACE_PERIOD", 60),
+            adopt_existing_data: bool::env_parse("PATRONI_ADOPT_EXISTING_DATA", false),
         })
     }
 }
@@ -203,31 +184,21 @@ fn update_pg_hba_for_replication(config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    info!(
-        "Checking pg_hba.conf for replication support (user: {})...",
-        config.repl_user
-    );
+    info!(user = %config.repl_user, "Checking pg_hba.conf for replication");
 
     let content = fs::read_to_string(&pg_hba_path)?;
 
-    // Check if replication entries exist for our specific user
     if content.contains(&format!("replication {}", config.repl_user))
         || content.contains(&format!("replication\t{}", config.repl_user))
     {
-        info!(
-            "Replication entries for {} already exist in pg_hba.conf",
-            config.repl_user
-        );
+        info!("Replication entries already exist");
         return Ok(());
     }
 
-    info!(
-        "Adding replication entries for user {} to pg_hba.conf...",
-        config.repl_user
-    );
+    info!("Adding replication entries to pg_hba.conf");
 
     let new_entries = format!(
-        r#"# Replication entries added by Patroni migration for user {}
+        r#"# Replication entries for {}
 hostssl replication {} 0.0.0.0/0 scram-sha-256
 hostssl replication {} ::/0 scram-sha-256
 host replication {} 0.0.0.0/0 scram-sha-256
@@ -243,16 +214,9 @@ host replication {} ::/0 scram-sha-256
 
     let new_content = format!("{}{}", new_entries, content);
     fs::write(&pg_hba_path, new_content)?;
+    fs::set_permissions(&pg_hba_path, std::fs::Permissions::from_mode(0o600))?;
 
-    // Set permissions
-    let perms = std::fs::Permissions::from_mode(0o600);
-    fs::set_permissions(&pg_hba_path, perms)?;
-
-    info!(
-        "pg_hba.conf updated with replication entries for {}",
-        config.repl_user
-    );
-
+    info!("pg_hba.conf updated");
     Ok(())
 }
 
@@ -287,153 +251,150 @@ async fn start_patroni() -> Result<Child> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into()),
-        )
-        .with_target(false)
-        .init();
+    let _guard = init_logging("patroni-runner");
 
-    info!("=== Patroni Runner ===");
-
+    let telemetry = Telemetry::from_env("postgres-ha");
     let config = Config::from_env()?;
 
     info!(
-        "Node: {} (address: {})",
-        config.name, config.connect_address
+        node = %config.name,
+        address = %config.connect_address,
+        "=== Patroni Runner ==="
     );
 
     let volume_root = volume_root();
     let bootstrap_marker = format!("{}/.patroni_bootstrap_complete", volume_root);
 
-    // Update pg_hba.conf for replication if adopting existing data
     if config.adopt_existing_data {
         update_pg_hba_for_replication(&config)?;
     }
 
-    // Check for valid data
     let pg_control_path = format!("{}/global/pg_control", config.data_dir);
     let has_pg_control = Path::new(&pg_control_path).exists();
     let has_marker = Path::new(&bootstrap_marker).exists();
 
     if config.adopt_existing_data && has_pg_control && !has_marker {
         info!("PATRONI_ADOPT_EXISTING_DATA=true - migrating from vanilla PostgreSQL");
-        info!("Preserving existing data and adopting into Patroni cluster");
         fs::write(&bootstrap_marker, "").context("Failed to create bootstrap marker")?;
     } else if has_pg_control && has_marker {
         info!("Found valid data with bootstrap marker");
     } else if has_pg_control {
-        info!("Found pg_control but NO bootstrap marker - stale data from failed bootstrap");
+        info!("Found pg_control but NO bootstrap marker - stale data");
     } else {
         info!("No PostgreSQL data found");
     }
 
-    // Generate Patroni configuration
     let patroni_config = generate_patroni_config(&config);
     fs::write("/tmp/patroni.yml", &patroni_config).context("Failed to write patroni.yml")?;
 
     info!(
-        "Starting Patroni (scope: {}, etcd: {})",
-        config.scope, config.etcd_hosts
+        scope = %config.scope,
+        etcd = %config.etcd_hosts,
+        "Starting Patroni"
     );
 
-    // Ensure data directory has correct permissions
     fs::create_dir_all(&config.data_dir).ok();
-    let perms = std::fs::Permissions::from_mode(0o700);
-    fs::set_permissions(&config.data_dir, perms).ok();
+    fs::set_permissions(&config.data_dir, std::fs::Permissions::from_mode(0o700)).ok();
 
-    // Unset PG* environment variables
     env::remove_var("PGPASSWORD");
     env::remove_var("PGUSER");
     env::remove_var("PGHOST");
     env::remove_var("PGPORT");
     env::remove_var("PGDATABASE");
 
-    // Start Patroni
     let mut child = start_patroni().await?;
     let patroni_pid = child.id().ok_or_else(|| anyhow!("Failed to get Patroni PID"))?;
-    info!("Patroni started with PID {}", patroni_pid);
+    info!(pid = patroni_pid, "Patroni started");
 
-    // Set up signal handlers
     let mut sigterm = signal(SignalKind::terminate())?;
     let mut sigint = signal(SignalKind::interrupt())?;
 
-    // Wait for startup grace period
     info!(
-        "Waiting {}s for Patroni to initialize...",
-        config.startup_grace_period
+        seconds = config.startup_grace_period,
+        "Waiting for Patroni to initialize"
     );
 
     let mut startup_elapsed = 0u64;
     while startup_elapsed < config.startup_grace_period {
         tokio::select! {
             _ = sigterm.recv() => {
-                info!("Received SIGTERM during startup, stopping Patroni...");
+                info!("Received SIGTERM during startup");
                 let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
                 let _ = child.wait().await;
                 return Ok(());
             }
             _ = sigint.recv() => {
-                info!("Received SIGINT during startup, stopping Patroni...");
+                info!("Received SIGINT during startup");
                 let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
                 let _ = child.wait().await;
                 return Ok(());
             }
-            _status = child.wait() => {
-                error!("Patroni process died during startup");
+            status = child.wait() => {
+                error!("Patroni died during startup");
+                telemetry.send(TelemetryEvent::ProcessDied {
+                    node: config.name.clone(),
+                    process: "patroni".to_string(),
+                    exit_code: status.ok().and_then(|s| s.code()),
+                });
                 std::process::exit(1);
             }
             _ = sleep(Duration::from_secs(5)) => {
                 startup_elapsed += 5;
-
-                // Try health check early
                 if check_health(config.health_check_timeout).await {
-                    info!("Patroni healthy after {}s, starting health monitoring", startup_elapsed);
+                    info!(elapsed = startup_elapsed, "Patroni healthy, starting monitoring");
                     break;
                 }
             }
         }
     }
 
-    // Main health monitoring loop
     let mut failures = 0u32;
     info!(
-        "Health monitoring active (interval={}s, max_failures={})",
-        config.health_check_interval, config.max_failures
+        interval = config.health_check_interval,
+        max_failures = config.max_failures,
+        "Health monitoring active"
     );
 
     loop {
         tokio::select! {
             _ = sigterm.recv() => {
-                info!("Received SIGTERM, stopping Patroni...");
+                info!("Received SIGTERM");
                 let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
                 let _ = child.wait().await;
                 return Ok(());
             }
             _ = sigint.recv() => {
-                info!("Received SIGINT, stopping Patroni...");
+                info!("Received SIGINT");
                 let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
                 let _ = child.wait().await;
                 return Ok(());
             }
-            _status = child.wait() => {
+            status = child.wait() => {
                 error!("Patroni process died unexpectedly");
+                telemetry.send(TelemetryEvent::ProcessDied {
+                    node: config.name.clone(),
+                    process: "patroni".to_string(),
+                    exit_code: status.ok().and_then(|s| s.code()),
+                });
                 std::process::exit(1);
             }
             _ = sleep(Duration::from_secs(config.health_check_interval)) => {
                 if check_health(config.health_check_timeout).await {
                     if failures > 0 {
-                        info!("Patroni recovered after {} failed health checks", failures);
+                        info!(previous_failures = failures, "Patroni recovered");
                     }
                     failures = 0;
                 } else {
                     failures += 1;
-                    warn!("Health check failed ({}/{})", failures, config.max_failures);
+                    warn!(failures, max = config.max_failures, "Health check failed");
 
                     if failures >= config.max_failures {
-                        error!("CRITICAL: Patroni unresponsive after {} checks - exiting to trigger restart", config.max_failures);
+                        error!(failures, "Patroni unresponsive - exiting");
+                        telemetry.send(TelemetryEvent::HealthCheckFailed {
+                            node: config.name.clone(),
+                            consecutive_failures: failures,
+                            max_failures: config.max_failures,
+                        });
                         let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
                         sleep(Duration::from_secs(2)).await;
                         let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGKILL);

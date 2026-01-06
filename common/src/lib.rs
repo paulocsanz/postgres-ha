@@ -1,0 +1,17 @@
+//! Shared utilities for postgres-ha components
+//!
+//! This crate provides common functionality used across all postgres-ha components:
+//! - Structured logging with operation IDs and timing
+//! - Environment variable parsing helpers
+//! - Command execution utilities
+//! - Telemetry for reporting events to Railway
+
+pub mod command;
+pub mod config;
+pub mod logging;
+pub mod telemetry;
+
+// Re-export commonly used items
+pub use config::{ConfigExt, RailwayEnv};
+pub use logging::init_logging;
+pub use telemetry::{Telemetry, TelemetryEvent};

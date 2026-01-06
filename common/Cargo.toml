@@ -1,14 +1,15 @@
 [package]
-name = "haproxy-entrypoint"
+name = "common"
 version.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "haproxy-entrypoint"
-path = "src/main.rs"
-
 [dependencies]
-common = { path = "../common" }
 anyhow.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
