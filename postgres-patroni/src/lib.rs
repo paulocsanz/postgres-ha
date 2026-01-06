@@ -1,7 +1,7 @@
 //! Shared utilities for postgres-patroni binaries
 //!
-//! This module provides PostgreSQL-specific utilities for volume paths,
-//! SSL certificate management, and YAML parsing.
+//! This module provides PostgreSQL-specific utilities for volume paths
+//! and SSL certificate management.
 
 use anyhow::{Context, Result};
 use std::env;
@@ -91,51 +91,4 @@ pub async fn cert_expires_within(cert_path: &str, seconds: u64) -> bool {
         Ok(output) => !output.status.success(),
         Err(_) => true,
     }
-}
-
-/// Parse a simple YAML value from a line like "key: value"
-pub fn parse_yaml_value(line: &str) -> Option<String> {
-    let parts: Vec<&str> = line.splitn(2, ':').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    let value = parts[1].trim();
-    let value = value
-        .trim_start_matches('"')
-        .trim_end_matches('"')
-        .trim_start_matches('\'')
-        .trim_end_matches('\'');
-
-    Some(value.to_string())
-}
-
-/// Extract a value from a YAML file given a section and key
-pub fn extract_yaml_value(content: &str, section: &str, key: &str) -> Option<String> {
-    let mut in_section = false;
-    let mut section_indent = 0;
-
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        let indent = line.len() - trimmed.len();
-
-        if trimmed.starts_with(&format!("{}:", section)) {
-            in_section = true;
-            section_indent = indent;
-            continue;
-        }
-
-        if in_section {
-            if !trimmed.is_empty() && indent <= section_indent && !trimmed.starts_with('#') {
-                in_section = false;
-                continue;
-            }
-
-            if trimmed.starts_with(&format!("{}:", key)) {
-                return parse_yaml_value(trimmed);
-            }
-        }
-    }
-
-    None
 }

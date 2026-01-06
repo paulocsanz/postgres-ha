@@ -11,4 +11,3 @@ path = "src/main.rs"
 common = { path = "../common" }
 anyhow.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

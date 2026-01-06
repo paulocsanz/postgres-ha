@@ -1,20 +1,14 @@
 //! etcd bootstrap wrapper with leader-based startup and learner mode
 //!
-//! Problem: etcd nodes starting at different times fail to form cluster because
-//! all nodes waiting for each other on TCP creates a deadlock.
+//! Bootstraps etcd cluster using single-node + learner pattern to avoid deadlocks:
+//! 1. Leader (alphabetically first) bootstraps single-node cluster
+//! 2. Other nodes wait, then join as learners (non-voting)
+//! 3. Learners promote to voting members once healthy
 //!
-//! Solution: Single-node bootstrap with learner mode (etcd v3.4+)
-//! 1. Determine bootstrap leader (alphabetically first node name)
-//! 2. Leader bootstraps single-node cluster (instant quorum)
-//! 3. Other nodes wait for leader, add themselves as LEARNERS (non-voting)
-//! 4. Learners sync data, then auto-promote to voting members once healthy
-//!
-//! Recovery mode (leader volume loss):
-//! - Before bootstrapping, leader checks if other peers have a healthy cluster
-//! - If yes: leader removes its stale entry and joins as learner
+//! Recovery: If leader loses volume, it detects existing cluster and joins as learner
 
 use anyhow::{anyhow, Context, Result};
-use common::{init_logging, ConfigExt, Telemetry, TelemetryEvent};
+use common::{etcdctl, init_logging, ConfigExt, Telemetry, TelemetryEvent};
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Stdio;
@@ -85,22 +79,21 @@ fn get_my_peer_url(initial_cluster: &str, etcd_name: &str) -> Option<String> {
     cluster.get(etcd_name).cloned()
 }
 
-/// Run etcdctl command and return output
-async fn etcdctl(args: &[&str]) -> Result<String> {
-    let output = Command::new("etcdctl")
-        .args(args)
-        .output()
-        .await
-        .context("Failed to run etcdctl")?;
-
-    if output.status.success() {
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
-    } else {
-        Err(anyhow!(
-            "etcdctl failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
+/// Clear all contents of a directory without removing the directory itself
+async fn clear_directory(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
     }
+    let mut entries = fs::read_dir(path).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.is_dir() {
+            fs::remove_dir_all(&path).await?;
+        } else {
+            fs::remove_file(&path).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Check cluster health via localhost or voting member
@@ -293,19 +286,7 @@ async fn add_self_to_cluster(config: &Config, leader: &str) -> Result<String> {
                 remove_stale_self(&endpoint, &config.etcd_name, &my_peer_url).await?;
 
                 // Clean partial data
-                let data_path = Path::new(&config.data_dir);
-                if data_path.exists() {
-                    if let Ok(mut entries) = fs::read_dir(data_path).await {
-                        while let Ok(Some(entry)) = entries.next_entry().await {
-                            let path = entry.path();
-                            if path.is_dir() {
-                                let _ = fs::remove_dir_all(&path).await;
-                            } else {
-                                let _ = fs::remove_file(&path).await;
-                            }
-                        }
-                    }
-                }
+                let _ = clear_directory(Path::new(&config.data_dir)).await;
                 break;
             } else {
                 info!("Already a member with local data");
@@ -454,36 +435,22 @@ async fn promote_self(
     }
 }
 
-/// Clean stale data on startup
+/// Clean stale data on startup (only if no bootstrap marker)
 async fn clean_stale_data(config: &Config) -> Result<()> {
     let data_path = Path::new(&config.data_dir);
-    let marker_str = config.bootstrap_marker();
-    let marker_path = Path::new(&marker_str);
+    if !data_path.exists() {
+        return Ok(());
+    }
 
-    if data_path.exists() {
-        let has_data = fs::read_dir(data_path)
-            .await?
-            .next_entry()
-            .await?
-            .is_some();
+    let has_data = has_local_data(&config.data_dir).await;
+    let marker_exists = Path::new(&config.bootstrap_marker()).exists();
 
-        if has_data {
-            if !marker_path.exists() {
-                info!("Found stale data from incomplete bootstrap - cleaning");
-                let mut entries = fs::read_dir(data_path).await?;
-                while let Some(entry) = entries.next_entry().await? {
-                    let path = entry.path();
-                    if path.is_dir() {
-                        fs::remove_dir_all(&path).await?;
-                    } else {
-                        fs::remove_file(&path).await?;
-                    }
-                }
-                info!("Data directory cleaned");
-            } else {
-                info!("Found data with bootstrap marker - preserving");
-            }
-        }
+    if has_data && !marker_exists {
+        info!("Found stale data from incomplete bootstrap - cleaning");
+        clear_directory(data_path).await?;
+        info!("Data directory cleaned");
+    } else if has_data {
+        info!("Found data with bootstrap marker - preserving");
     }
 
     Ok(())
@@ -741,30 +708,11 @@ async fn main() -> Result<()> {
         let exit_code = status.code().unwrap_or(-1);
         info!(exit_code, "etcd exited");
 
-        let marker_path = config.bootstrap_marker();
-        if !Path::new(&marker_path).exists() {
-            let data_path = Path::new(&config.data_dir);
-            if data_path.exists() {
-                let has_data = fs::read_dir(data_path)
-                    .await?
-                    .next_entry()
-                    .await?
-                    .is_some();
-
-                if has_data {
-                    info!("Bootstrap incomplete - cleaning data");
-                    let mut entries = fs::read_dir(data_path).await?;
-                    while let Some(entry) = entries.next_entry().await? {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            let _ = fs::remove_dir_all(&path).await;
-                        } else {
-                            let _ = fs::remove_file(&path).await;
-                        }
-                    }
-                }
-            }
-        } else {
+        let marker_exists = Path::new(&config.bootstrap_marker()).exists();
+        if !marker_exists && has_local_data(&config.data_dir).await {
+            info!("Bootstrap incomplete - cleaning data");
+            let _ = clear_directory(Path::new(&config.data_dir)).await;
+        } else if marker_exists {
             info!("Bootstrap complete - preserving data");
         }
 

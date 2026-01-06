@@ -6,7 +6,8 @@
 
 use anyhow::{anyhow, Context, Result};
 use common::{init_logging, Telemetry, TelemetryEvent};
-use postgres_patroni::{extract_yaml_value, parse_yaml_value, volume_root};
+use postgres_patroni::volume_root;
+use serde::Deserialize;
 use std::env;
 use std::io::Write;
 use std::path::Path;
@@ -15,6 +16,43 @@ use std::time::Instant;
 use tracing::{error, info};
 
 const PATRONI_CONFIG: &str = "/tmp/patroni.yml";
+
+/// Partial Patroni config - only fields we need for bootstrap
+#[derive(Deserialize)]
+struct PatroniConfig {
+    postgresql: PostgresqlConfig,
+}
+
+#[derive(Deserialize)]
+struct PostgresqlConfig {
+    authentication: Authentication,
+    #[serde(default)]
+    app_user: AppUser,
+}
+
+#[derive(Deserialize)]
+struct Authentication {
+    replication: UserCredentials,
+    superuser: UserCredentials,
+}
+
+#[derive(Deserialize, Default)]
+struct UserCredentials {
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
+}
+
+#[derive(Deserialize, Default)]
+struct AppUser {
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: String,
+    #[serde(default)]
+    database: String,
+}
 
 struct Credentials {
     repl_user: String,
@@ -27,81 +65,22 @@ struct Credentials {
 }
 
 fn read_credentials() -> Result<Credentials> {
-    let content =
-        std::fs::read_to_string(PATRONI_CONFIG).context("Failed to read Patroni config")?;
+    let content = std::fs::read_to_string(PATRONI_CONFIG)
+        .context("Failed to read Patroni config")?;
 
-    let repl_user = extract_nested_value(&content, "authentication", "replication", "username")
-        .ok_or_else(|| anyhow!("Could not extract replication username"))?;
-    let repl_pass = extract_nested_value(&content, "authentication", "replication", "password")
-        .ok_or_else(|| anyhow!("Could not extract replication password"))?;
-    let superuser = extract_nested_value(&content, "authentication", "superuser", "username")
-        .ok_or_else(|| anyhow!("Could not extract superuser username"))?;
-    let superuser_pass = extract_nested_value(&content, "authentication", "superuser", "password")
-        .ok_or_else(|| anyhow!("Could not extract superuser password"))?;
+    let config: PatroniConfig = serde_yaml::from_str(&content)
+        .context("Failed to parse Patroni config")?;
 
-    let app_user = extract_yaml_value(&content, "app_user", "username").unwrap_or_default();
-    let app_pass = extract_yaml_value(&content, "app_user", "password").unwrap_or_default();
-    let app_db = extract_yaml_value(&content, "app_user", "database").unwrap_or_default();
-
+    let pg = config.postgresql;
     Ok(Credentials {
-        repl_user,
-        repl_pass,
-        superuser,
-        superuser_pass,
-        app_user,
-        app_pass,
-        app_db,
+        repl_user: pg.authentication.replication.username,
+        repl_pass: pg.authentication.replication.password,
+        superuser: pg.authentication.superuser.username,
+        superuser_pass: pg.authentication.superuser.password,
+        app_user: pg.app_user.username,
+        app_pass: pg.app_user.password,
+        app_db: pg.app_user.database,
     })
-}
-
-fn extract_nested_value(
-    content: &str,
-    section1: &str,
-    section2: &str,
-    key: &str,
-) -> Option<String> {
-    let mut in_section1 = false;
-    let mut in_section2 = false;
-    let mut section1_indent = 0;
-    let mut section2_indent = 0;
-
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        let indent = line.len() - trimmed.len();
-
-        if trimmed.starts_with(&format!("{}:", section1)) {
-            in_section1 = true;
-            section1_indent = indent;
-            continue;
-        }
-
-        if in_section1 {
-            if !trimmed.is_empty() && indent <= section1_indent && !trimmed.starts_with('#') {
-                in_section1 = false;
-                in_section2 = false;
-                continue;
-            }
-
-            if trimmed.starts_with(&format!("{}:", section2)) {
-                in_section2 = true;
-                section2_indent = indent;
-                continue;
-            }
-
-            if in_section2 {
-                if !trimmed.is_empty() && indent <= section2_indent && !trimmed.starts_with('#') {
-                    in_section2 = false;
-                    continue;
-                }
-
-                if trimmed.starts_with(&format!("{}:", key)) {
-                    return parse_yaml_value(trimmed);
-                }
-            }
-        }
-    }
-
-    None
 }
 
 fn run_psql(superuser: &str, sql: &str) -> Result<String> {
