@@ -89,8 +89,8 @@ pub enum TelemetryEvent {
     /// HAProxy started successfully
     HaproxyStarted { node_count: usize, single_node_mode: bool },
 
-    /// HAProxy config was generated
-    HaproxyConfigGenerated { nodes: Vec<String> },
+    /// HAProxy config generation starting
+    HaproxyConfigGenerating { nodes: Vec<String> },
 
     // === Generic Events ===
     /// Component started
@@ -122,7 +122,7 @@ impl TelemetryEvent {
             Self::EtcdRecoveryMode { .. } => "ETCD_RECOVERY_MODE",
             Self::EtcdStartupFailed { .. } => "ETCD_STARTUP_FAILED",
             Self::HaproxyStarted { .. } => "HAPROXY_STARTED",
-            Self::HaproxyConfigGenerated { .. } => "HAPROXY_CONFIG_GENERATED",
+            Self::HaproxyConfigGenerating { .. } => "HAPROXY_CONFIG_GENERATING",
             Self::ComponentStarted { .. } => "COMPONENT_STARTED",
             Self::ComponentError { .. } => "COMPONENT_ERROR",
         }
@@ -208,8 +208,8 @@ impl TelemetryEvent {
                     node_count, single_node_mode
                 )
             }
-            Self::HaproxyConfigGenerated { nodes } => {
-                format!("HAProxy config for: {:?}", nodes)
+            Self::HaproxyConfigGenerating { nodes } => {
+                format!("Generating HAProxy config for: {:?}", nodes)
             }
             Self::ComponentStarted { component, version } => {
                 format!("{} v{} started", component, version)

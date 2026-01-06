@@ -39,8 +39,7 @@ fn main() -> Result<()> {
         info!("Single node mode: routing directly without Patroni health checks");
     }
 
-    // Send telemetry
-    telemetry.send(TelemetryEvent::HaproxyConfigGenerated {
+    telemetry.send(TelemetryEvent::HaproxyConfigGenerating {
         nodes: nodes.iter().map(|n| n.name.clone()).collect(),
     });
 
