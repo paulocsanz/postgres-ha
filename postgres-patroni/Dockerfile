@@ -43,16 +43,16 @@ RUN echo "postgres ALL=(root) NOPASSWD: /usr/bin/mkdir, /bin/chown, /bin/chmod, 
 # ============================================================
 FROM base AS slim
 
-# Copy Rust binaries
+# Copy SSL init script and Rust wrapper
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/wrapper.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/postgres-wrapper
 
 EXPOSE 5432
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD pg_isready -U ${POSTGRES_USER:-postgres} || exit 1
 
-ENTRYPOINT ["wrapper.sh"]
+ENTRYPOINT ["postgres-wrapper"]
 CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]
 
 # ============================================================
@@ -86,12 +86,12 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN mkdir -p /home/postgres /var/run/postgresql \
     && chown -R postgres:postgres /home/postgres /var/run/postgresql
 
-# Copy Rust binaries (using original script names for compatibility)
+# Copy SSL init script and Rust binaries
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/wrapper.sh
-COPY --from=rust-builder --chmod=755 /build/target/release/post-bootstrap /post_bootstrap.sh
-COPY --from=rust-builder --chmod=755 /build/target/release/patroni-runner /usr/local/bin/patroni-runner.sh
-COPY --from=rust-builder --chmod=755 /build/target/release/on-role-change /on_role_change.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/postgres-wrapper
+COPY --from=rust-builder --chmod=755 /build/target/release/post-bootstrap /usr/local/bin/post-bootstrap
+COPY --from=rust-builder --chmod=755 /build/target/release/patroni-runner /usr/local/bin/patroni-runner
+COPY --from=rust-builder --chmod=755 /build/target/release/on-role-change /usr/local/bin/on-role-change
 
 EXPOSE 5432 8008
 
@@ -103,5 +103,5 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=2 \
             pg_isready -U ${POSTGRES_USER:-postgres} || exit 1; \
         fi
 
-ENTRYPOINT ["wrapper.sh"]
+ENTRYPOINT ["postgres-wrapper"]
 CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]

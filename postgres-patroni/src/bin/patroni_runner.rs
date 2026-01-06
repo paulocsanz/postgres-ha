@@ -124,7 +124,7 @@ bootstrap:
     - host all all 0.0.0.0/0 scram-sha-256
     - host all all ::/0 scram-sha-256
 
-  post_bootstrap: /post_bootstrap.sh
+  post_bootstrap: /usr/local/bin/post-bootstrap
 
 postgresql:
   listen: "*:5432"
@@ -132,7 +132,7 @@ postgresql:
   data_dir: {data_dir}
   pgpass: /tmp/pgpass
   callbacks:
-    on_role_change: /on_role_change.sh
+    on_role_change: /usr/local/bin/on-role-change
   remove_data_directory_on_rewind_failure: true
   remove_data_directory_on_diverged_timelines: true
   create_replica_methods:

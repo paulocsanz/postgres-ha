@@ -176,7 +176,7 @@ async fn main() -> Result<()> {
 
         info!("Starting Patroni runner...");
         let err = Command::new("gosu")
-            .args(["postgres", "/usr/local/bin/patroni-runner.sh"])
+            .args(["postgres", "/usr/local/bin/patroni-runner"])
             .exec();
 
         Err(anyhow!("Failed to exec patroni-runner: {}", err))
