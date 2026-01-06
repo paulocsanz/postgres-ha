@@ -1,7 +1,0 @@
-[build]
-builder = "dockerfile"
-dockerfilePath = "postgres-patroni/Dockerfile"
-watchPatterns = ["postgres-patroni/**"]
-
-[deploy]
-restartPolicyType = "always"

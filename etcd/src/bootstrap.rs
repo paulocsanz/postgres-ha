@@ -15,10 +15,10 @@ use tokio::time::sleep;
 use tracing::{info, warn};
 
 /// Check if any other peer has a healthy cluster (for recovery detection)
-pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Option<String> {
+pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Result<Option<String>> {
     info!("Checking for existing cluster on other peers...");
 
-    let cluster = parse_initial_cluster(initial_cluster);
+    let cluster = parse_initial_cluster(initial_cluster)?;
     for (name, peer_url) in cluster.iter() {
         if name == my_name {
             continue;
@@ -32,11 +32,11 @@ pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Opt
             .is_ok()
         {
             info!(peer = %name, "Found healthy cluster");
-            return Some(client_endpoint);
+            return Ok(Some(client_endpoint));
         }
     }
 
-    None
+    Ok(None)
 }
 
 /// Wait for leader or any healthy peer
@@ -44,14 +44,14 @@ pub async fn wait_for_any_healthy_peer(
     config: &Config,
     preferred_leader: &str,
 ) -> Result<(String, String)> {
-    let cluster = parse_initial_cluster(&config.initial_cluster);
+    let cluster = parse_initial_cluster(&config.initial_cluster)?;
 
     info!(leader = %preferred_leader, "Waiting for bootstrap leader or any healthy peer");
 
     let start = std::time::Instant::now();
     while start.elapsed() < config.peer_wait_timeout {
         // Try preferred leader first
-        if let Some(endpoint) = get_leader_endpoint(&config.initial_cluster, preferred_leader) {
+        if let Some(endpoint) = get_leader_endpoint(&config.initial_cluster, preferred_leader)? {
             match etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)]).await {
                 Ok(_) => {
                     info!(leader = %preferred_leader, "Leader is healthy");
@@ -162,7 +162,7 @@ pub async fn bootstrap_as_leader(
     telemetry: &Telemetry,
 ) -> Result<Option<BootstrapParams>> {
     let marker_exists = Path::new(&config.bootstrap_marker()).exists();
-    let cluster = parse_initial_cluster(&config.initial_cluster);
+    let cluster = parse_initial_cluster(&config.initial_cluster)?;
 
     if marker_exists {
         return Ok(Some(BootstrapParams {
@@ -174,7 +174,7 @@ pub async fn bootstrap_as_leader(
 
     // Check for recovery scenario - existing cluster on other peers
     if let Some(existing_endpoint) =
-        check_existing_cluster(&config.initial_cluster, &config.etcd_name).await
+        check_existing_cluster(&config.initial_cluster, &config.etcd_name).await?
     {
         info!("RECOVERY MODE: Found existing cluster");
 
@@ -183,8 +183,8 @@ pub async fn bootstrap_as_leader(
             reason: "Leader volume lost, cluster exists".to_string(),
         });
 
-        let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)
-            .ok_or_else(|| anyhow!("Could not find my peer URL"))?;
+        let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
+            .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
 
         let _ = remove_stale_self(&existing_endpoint, &config.etcd_name, &my_peer_url).await;
 
@@ -240,8 +240,8 @@ pub async fn bootstrap_as_leader(
     }
 
     // Fresh bootstrap - single node cluster
-    let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)
-        .ok_or_else(|| anyhow!("Could not find my peer URL"))?;
+    let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
+        .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
 
     let single_node_cluster = format!("{}={}", config.etcd_name, my_peer_url);
     info!(cluster = %single_node_cluster, "Bootstrapping single-node cluster");

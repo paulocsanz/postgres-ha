@@ -26,6 +26,7 @@ path = "src/bin/on_role_change.rs"
 common = { path = "../common" }
 anyhow.workspace = true
 nix.workspace = true
+openssl.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true

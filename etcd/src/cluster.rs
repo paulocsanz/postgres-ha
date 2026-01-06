@@ -60,7 +60,7 @@ pub async fn check_cluster_health(initial_cluster: &str) -> bool {
         return true;
     }
 
-    if let Some(endpoint) = get_voting_member_endpoint(initial_cluster).await {
+    if let Ok(Some(endpoint)) = get_voting_member_endpoint(initial_cluster).await {
         return etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)])
             .await
             .is_ok();
@@ -70,8 +70,8 @@ pub async fn check_cluster_health(initial_cluster: &str) -> bool {
 }
 
 /// Find a voting member endpoint
-pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Option<String> {
-    let cluster = parse_initial_cluster(initial_cluster);
+pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Result<Option<String>> {
+    let cluster = parse_initial_cluster(initial_cluster)?;
 
     for (_name, peer_url) in cluster.iter() {
         let client_endpoint = peer_url.replace(":2380", ":2379");
@@ -79,11 +79,11 @@ pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Option<String>
             .await
             .is_ok()
         {
-            return Some(client_endpoint);
+            return Ok(Some(client_endpoint));
         }
     }
 
-    None
+    Ok(None)
 }
 
 /// Get my member ID from etcd cluster
@@ -165,8 +165,8 @@ pub async fn add_self_to_cluster(
     leader: &str,
     leader_endpoint: &str,
 ) -> Result<String> {
-    let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)
-        .ok_or_else(|| anyhow!("Could not find my peer URL"))?;
+    let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
+        .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
 
     info!(node = %config.etcd_name, via = %leader_endpoint, "Adding self as learner");
 
@@ -227,7 +227,7 @@ pub async fn promote_self(
     telemetry: &Telemetry,
 ) -> Result<()> {
     let endpoint = get_voting_member_endpoint(initial_cluster)
-        .await
+        .await?
         .ok_or_else(|| anyhow!("Could not find voting member endpoint"))?;
 
     let member_id = get_my_member_id(&endpoint, my_name)

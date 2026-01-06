@@ -737,6 +737,7 @@ dependencies = [
  "anyhow",
  "common",
  "nix",
+ "openssl",
  "reqwest",
  "serde",
  "serde_yaml",

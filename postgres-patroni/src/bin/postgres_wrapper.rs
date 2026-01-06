@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 const INIT_SSL_SCRIPT: &str = "/docker-entrypoint-initdb.d/init-ssl.sh";
 
@@ -48,11 +48,13 @@ async fn check_and_generate_ssl(telemetry: &Telemetry) -> Result<()> {
         return Ok(());
     }
 
-    let is_valid = timeout(Duration::from_secs(30), async {
-        is_valid_x509v3_cert(&server_crt).await
-    })
-    .await
-    .unwrap_or(false);
+    let is_valid = match is_valid_x509v3_cert(&server_crt) {
+        Ok(valid) => valid,
+        Err(e) => {
+            warn!(error = %e, "Failed to validate certificate, will regenerate");
+            false
+        }
+    };
 
     if !is_valid {
         info!("Invalid x509v3 certificate, regenerating...");
@@ -64,11 +66,13 @@ async fn check_and_generate_ssl(telemetry: &Telemetry) -> Result<()> {
         return Ok(());
     }
 
-    let expires_soon = timeout(Duration::from_secs(30), async {
-        cert_expires_within(&server_crt, 2592000).await
-    })
-    .await
-    .unwrap_or(true);
+    let expires_soon = match cert_expires_within(&server_crt, 2592000) {
+        Ok(expires) => expires,
+        Err(e) => {
+            warn!(error = %e, "Failed to check certificate expiry, will regenerate");
+            true
+        }
+    };
 
     if expires_soon {
         info!("Certificate expiring soon, regenerating...");
@@ -184,14 +188,32 @@ async fn main() -> Result<()> {
         let ssl_dir = ssl_dir();
         let server_crt = format!("{}/server.crt", ssl_dir);
 
-        if Path::new(&server_crt).exists() && !is_valid_x509v3_cert(&server_crt).await {
-            info!("Invalid certificate, regenerating...");
-            run_init_ssl().await?;
+        if Path::new(&server_crt).exists() {
+            match is_valid_x509v3_cert(&server_crt) {
+                Ok(false) => {
+                    info!("Invalid certificate, regenerating...");
+                    run_init_ssl().await?;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to validate certificate, regenerating...");
+                    run_init_ssl().await?;
+                }
+                Ok(true) => {}
+            }
         }
 
-        if Path::new(&server_crt).exists() && cert_expires_within(&server_crt, 2592000).await {
-            info!("Certificate expiring, regenerating...");
-            run_init_ssl().await?;
+        if Path::new(&server_crt).exists() {
+            match cert_expires_within(&server_crt, 2592000) {
+                Ok(true) => {
+                    info!("Certificate expiring, regenerating...");
+                    run_init_ssl().await?;
+                }
+                Err(e) => {
+                    warn!(error = %e, "Failed to check certificate expiry, regenerating...");
+                    run_init_ssl().await?;
+                }
+                Ok(false) => {}
+            }
         }
 
         if Path::new(&postgres_conf_file).exists() && !Path::new(&server_crt).exists() {

@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
     clean_stale_data(&config).await?;
 
-    let bootstrap_leader = get_bootstrap_leader(&config.initial_cluster);
+    let bootstrap_leader = get_bootstrap_leader(&config.initial_cluster)?;
     let is_leader = config.etcd_name == bootstrap_leader;
 
     info!(

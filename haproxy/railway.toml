@@ -1,8 +1,0 @@
-[build]
-builder = "dockerfile"
-dockerfilePath = "haproxy/Dockerfile"
-watchPatterns = ["haproxy/**"]
-
-[deploy]
-restartPolicyType = "always"
-multiRegionConfig = { "us-east4-eqdc4a" = { numReplicas = 3 } }
