@@ -74,6 +74,9 @@ pub enum TelemetryEvent {
     /// Learner promoted to voting member
     EtcdNodePromoted { node: String },
 
+    /// Stale member entry removed
+    EtcdStaleMemberRemoved { node: String, removed_id: String },
+
     /// Entering recovery mode
     EtcdRecoveryMode { node: String, reason: String },
 
@@ -119,6 +122,7 @@ impl TelemetryEvent {
             Self::EtcdBootstrap { .. } => "ETCD_CLUSTER_BOOTSTRAP",
             Self::EtcdNodeJoined { .. } => "ETCD_NODE_JOINED",
             Self::EtcdNodePromoted { .. } => "ETCD_NODE_PROMOTED",
+            Self::EtcdStaleMemberRemoved { .. } => "ETCD_STALE_MEMBER_REMOVED",
             Self::EtcdRecoveryMode { .. } => "ETCD_RECOVERY_MODE",
             Self::EtcdStartupFailed { .. } => "ETCD_STARTUP_FAILED",
             Self::HaproxyStarted { .. } => "HAPROXY_STARTED",
@@ -184,6 +188,9 @@ impl TelemetryEvent {
             }
             Self::EtcdNodePromoted { node } => {
                 format!("etcd {} promoted to voting", node)
+            }
+            Self::EtcdStaleMemberRemoved { node, removed_id } => {
+                format!("etcd {} removed stale member {}", node, removed_id)
             }
             Self::EtcdRecoveryMode { node, reason } => {
                 format!("etcd {} recovery mode: {}", node, reason)

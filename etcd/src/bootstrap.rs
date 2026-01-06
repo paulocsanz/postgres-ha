@@ -186,7 +186,7 @@ pub async fn bootstrap_as_leader(
         let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
             .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
 
-        let _ = remove_stale_self(&existing_endpoint, &config.etcd_name, &my_peer_url).await;
+        let _ = remove_stale_self(&existing_endpoint, &config.etcd_name, &my_peer_url, telemetry).await;
 
         let output = etcdctl(&[
             "member",
@@ -285,7 +285,7 @@ pub async fn bootstrap_as_follower(
             }
         };
 
-    match add_self_to_cluster(config, &healthy_peer, &endpoint).await {
+    match add_self_to_cluster(config, &healthy_peer, &endpoint, telemetry).await {
         Ok(cluster_str) => {
             info!(cluster = %cluster_str, via = %healthy_peer, "Joining as learner");
             telemetry.send(TelemetryEvent::EtcdNodeJoined {

@@ -115,7 +115,12 @@ pub async fn is_learner(endpoint: &str, my_name: &str) -> bool {
 }
 
 /// Remove stale member entry for this node
-pub async fn remove_stale_self(endpoint: &str, my_name: &str, my_peer_url: &str) -> Result<()> {
+pub async fn remove_stale_self(
+    endpoint: &str,
+    my_name: &str,
+    my_peer_url: &str,
+    telemetry: &Telemetry,
+) -> Result<()> {
     info!("Checking for stale member entry...");
 
     let members = get_member_list(endpoint).await?;
@@ -130,6 +135,12 @@ pub async fn remove_stale_self(endpoint: &str, my_name: &str, my_peer_url: &str)
                 &format!("--endpoints={}", endpoint),
             ])
             .await?;
+
+            telemetry.send(TelemetryEvent::EtcdStaleMemberRemoved {
+                node: my_name.to_string(),
+                removed_id: member.id.clone(),
+            });
+
             info!("Stale member removed");
             return Ok(());
         }
@@ -168,6 +179,7 @@ pub async fn add_self_to_cluster(
     config: &Config,
     leader: &str,
     leader_endpoint: &str,
+    telemetry: &Telemetry,
 ) -> Result<String> {
     let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
         .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
@@ -180,7 +192,7 @@ pub async fn add_self_to_cluster(
         if member.name == config.etcd_name || member.peer_url == my_peer_url {
             if !has_local_data(&config.data_dir).await {
                 warn!("Registered as member but no local data - removing stale entry");
-                remove_stale_self(leader_endpoint, &config.etcd_name, &my_peer_url).await?;
+                remove_stale_self(leader_endpoint, &config.etcd_name, &my_peer_url, telemetry).await?;
 
                 // Clean partial data
                 let _ = clear_directory(Path::new(&config.data_dir)).await;
