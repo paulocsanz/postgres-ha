@@ -33,20 +33,24 @@ pub async fn get_member_list(endpoint: &str) -> Result<Vec<MemberInfo>> {
 
     let members: Vec<MemberInfo> = output
         .lines()
-        .filter_map(|line| {
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
             let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
             if parts.len() >= 5 {
-                Some(MemberInfo {
+                Ok(MemberInfo {
                     id: parts[0].to_string(),
                     name: parts[2].to_string(),
                     peer_url: parts[3].to_string(),
                     is_learner: parts.get(5).map(|s| *s == "true").unwrap_or(false),
                 })
             } else {
-                None
+                Err(anyhow!(
+                    "Invalid member list line '{}': expected at least 5 comma-separated fields",
+                    line
+                ))
             }
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(members)
 }
