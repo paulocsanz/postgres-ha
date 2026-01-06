@@ -735,7 +735,7 @@ async fn main() -> Result<()> {
 
         // Start etcd
         let mut child = start_etcd(&initial_cluster, &initial_cluster_state).await?;
-        info!("Patroni started with PID {:?}", child.id());
+        info!("etcd started with PID {:?}", child.id());
 
         // Spawn monitor task
         let monitor_config = Config::from_env()?;

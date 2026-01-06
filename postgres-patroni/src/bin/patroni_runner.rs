@@ -69,9 +69,11 @@ impl Config {
                 .unwrap_or_else(|_| "railway".to_string()),
             data_dir: pgdata(),
             certs_dir: ssl_dir(),
-            ttl: env::var("PATRONI_TTL").unwrap_or_else(|_| "45".to_string()),
+            // Constraint: loop_wait + 2*retry_timeout <= ttl
+            // Default: 10 + 2*10 = 30 <= 30 ✓
+            ttl: env::var("PATRONI_TTL").unwrap_or_else(|_| "30".to_string()),
             loop_wait: env::var("PATRONI_LOOP_WAIT").unwrap_or_else(|_| "10".to_string()),
-            retry_timeout: env::var("PATRONI_RETRY_TIMEOUT").unwrap_or_else(|_| "30".to_string()),
+            retry_timeout: env::var("PATRONI_RETRY_TIMEOUT").unwrap_or_else(|_| "10".to_string()),
             health_check_interval: env::var("PATRONI_HEALTH_CHECK_INTERVAL")
                 .unwrap_or_else(|_| "5".to_string())
                 .parse()
