@@ -46,7 +46,6 @@ impl Config {
 pub(crate) fn parse_initial_cluster(cluster: &str) -> Result<HashMap<String, String>> {
     cluster
         .split(',')
-        .filter(|entry| !entry.is_empty())
         .map(|entry| {
             let parts: Vec<&str> = entry.splitn(2, '=').collect();
             if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
