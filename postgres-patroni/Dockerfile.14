@@ -11,6 +11,20 @@
 ARG POSTGRES_VERSION=14
 
 # ============================================================
+# Rust builder stage: Compile all Rust binaries
+# ============================================================
+FROM rust:1.83-bookworm AS rust-builder
+
+WORKDIR /build
+
+# Copy Cargo files first for dependency caching
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+
+# Build release binaries
+RUN cargo build --release
+
+# ============================================================
 # Base stage: Common to both slim and HA
 # ============================================================
 FROM postgres:${POSTGRES_VERSION} AS base
@@ -28,8 +42,9 @@ RUN echo "postgres ALL=(root) NOPASSWD: /usr/bin/mkdir, /bin/chown, /bin/chmod, 
 # ============================================================
 FROM base AS slim
 
+# Copy Rust binaries
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --chmod=755 wrapper.sh /usr/local/bin/wrapper.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/wrapper.sh
 
 EXPOSE 5432
 
@@ -63,12 +78,12 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN mkdir -p /home/postgres /var/run/postgresql \
     && chown -R postgres:postgres /home/postgres /var/run/postgresql
 
-# Copy all scripts
+# Copy Rust binaries (using original script names for compatibility)
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --chmod=755 wrapper.sh /usr/local/bin/wrapper.sh
-COPY --chmod=755 post_bootstrap.sh /post_bootstrap.sh
-COPY --chmod=755 patroni-runner.sh /usr/local/bin/patroni-runner.sh
-COPY --chmod=755 on_role_change.sh /on_role_change.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/wrapper.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/post-bootstrap /post_bootstrap.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/patroni-runner /usr/local/bin/patroni-runner.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/on-role-change /on_role_change.sh
 
 EXPOSE 5432 8008
 

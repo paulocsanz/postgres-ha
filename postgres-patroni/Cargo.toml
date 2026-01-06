@@ -1,0 +1,41 @@
+[package]
+name = "postgres-patroni"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "postgres-wrapper"
+path = "src/bin/postgres_wrapper.rs"
+
+[[bin]]
+name = "patroni-runner"
+path = "src/bin/patroni_runner.rs"
+
+[[bin]]
+name = "post-bootstrap"
+path = "src/bin/post_bootstrap.rs"
+
+[[bin]]
+name = "on-role-change"
+path = "src/bin/on_role_change.rs"
+
+[dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", features = ["clock"] }
+nix = { version = "0.29", features = ["signal", "process"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "process", "time", "fs", "io-util", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

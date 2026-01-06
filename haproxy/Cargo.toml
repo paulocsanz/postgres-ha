@@ -1,0 +1,18 @@
+[package]
+name = "haproxy-entrypoint"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "haproxy-entrypoint"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
