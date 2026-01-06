@@ -225,8 +225,12 @@ fn main() -> Result<()> {
     // Write config file
     fs::write(CONFIG_FILE, &haproxy_config).context("Failed to write HAProxy config")?;
 
-    info!("HAProxy config generated:");
-    println!("{}", haproxy_config);
+    info!("HAProxy config written to {}", CONFIG_FILE);
+
+    // Log config using info! to avoid stdout/stderr interleaving in container logs
+    for line in haproxy_config.lines() {
+        info!("  {}", line);
+    }
 
     info!("Starting HAProxy...");
 

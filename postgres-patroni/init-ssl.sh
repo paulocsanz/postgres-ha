@@ -48,10 +48,15 @@ openssl x509 -req -in "$SSL_SERVER_CSR" -extfile "$SSL_V3_EXT" -extensions v3_re
 
 chown postgres:postgres "$SSL_SERVER_CRT"
 
-# PostgreSQL configuration, enable ssl and set paths to certificate files
-cat >> "$POSTGRES_CONF_FILE" <<EOF
+# In Patroni mode, SSL is configured via patroni.yml, not postgresql.conf
+# Only modify postgresql.conf for standalone (non-Patroni) PostgreSQL
+if [ "${PATRONI_ENABLED:-false}" != "true" ]; then
+    cat >> "$POSTGRES_CONF_FILE" <<EOF
 ssl = on
 ssl_cert_file = '$SSL_SERVER_CRT'
 ssl_key_file = '$SSL_SERVER_KEY'
 ssl_ca_file = '$SSL_ROOT_CRT'
 EOF
+else
+    echo "Patroni mode: SSL certs generated, Patroni will configure PostgreSQL SSL settings"
+fi

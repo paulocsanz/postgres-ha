@@ -24,7 +24,7 @@ use std::process::Stdio;
 use std::time::Duration;
 use tokio::fs;
 use tokio::process::Command;
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 struct Config {
@@ -99,16 +99,6 @@ fn get_bootstrap_leader(initial_cluster: &str) -> String {
 fn get_leader_endpoint(initial_cluster: &str, leader: &str) -> Option<String> {
     let cluster = parse_initial_cluster(initial_cluster);
     cluster.get(leader).map(|url| url.replace(":2380", ":2379"))
-}
-
-/// Get leader's peer host:port for TCP check
-fn get_leader_peer_host(initial_cluster: &str, leader: &str) -> Option<String> {
-    let cluster = parse_initial_cluster(initial_cluster);
-    cluster.get(leader).map(|url| {
-        url.trim_start_matches("http://")
-            .trim_start_matches("https://")
-            .to_string()
-    })
 }
 
 /// Get my peer URL from ETCD_INITIAL_CLUSTER
@@ -252,59 +242,56 @@ async fn remove_stale_self(endpoint: &str, my_name: &str, my_peer_url: &str) -> 
     Ok(())
 }
 
-/// Check TCP connectivity using tokio
-async fn check_tcp_connectivity(host: &str, port: u16, timeout_secs: u64) -> bool {
-    let addr = format!("{}:{}", host, port);
-    timeout(
-        Duration::from_secs(timeout_secs),
-        tokio::net::TcpStream::connect(&addr),
-    )
-    .await
-    .map(|r| r.is_ok())
-    .unwrap_or(false)
-}
+/// Wait for leader or any healthy peer to be accepting connections
+/// Returns the name of the node we can connect to
+async fn wait_for_any_healthy_peer(config: &Config, preferred_leader: &str) -> Result<String> {
+    let cluster = parse_initial_cluster(&config.initial_cluster);
 
-/// Wait for leader to be healthy and accepting connections
-async fn wait_for_leader(config: &Config, leader: &str) -> Result<()> {
-    let endpoint = get_leader_endpoint(&config.initial_cluster, leader)
-        .ok_or_else(|| anyhow!("Could not find leader endpoint"))?;
-
-    let host_port = get_leader_peer_host(&config.initial_cluster, leader)
-        .ok_or_else(|| anyhow!("Could not find leader peer host"))?;
-
-    let parts: Vec<&str> = host_port.split(':').collect();
-    let host = parts[0];
-    let port: u16 = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(2380);
-
-    info!("Waiting for bootstrap leader {} at {}...", leader, endpoint);
+    info!("Waiting for bootstrap leader {} or any healthy peer...", preferred_leader);
 
     let start = std::time::Instant::now();
     while start.elapsed() < config.peer_wait_timeout {
-        // First check TCP connectivity
-        if check_tcp_connectivity(host, port, 2).await {
-            // Then check if cluster is actually healthy
-            if etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)])
-                .await
-                .is_ok()
-            {
-                info!("Bootstrap leader {} is healthy", leader);
-                return Ok(());
-            } else {
-                info!("Leader {} reachable but not healthy yet...", leader);
+        // Try preferred leader first
+        if let Some(endpoint) = get_leader_endpoint(&config.initial_cluster, preferred_leader) {
+            match etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)]).await {
+                Ok(_) => {
+                    info!("Bootstrap leader {} is healthy", preferred_leader);
+                    return Ok(preferred_leader.to_string());
+                }
+                Err(e) => {
+                    info!("Leader {} health check failed: {}", preferred_leader, e);
+                }
             }
-        } else {
-            info!(
-                "Leader {} not reachable yet ({:?}/{:?})",
-                leader,
-                start.elapsed(),
-                config.peer_wait_timeout
-            );
         }
+
+        // Try any other peer
+        for (name, peer_url) in cluster.iter() {
+            if name == &config.etcd_name || name == preferred_leader {
+                continue;
+            }
+
+            let client_endpoint = peer_url.replace(":2380", ":2379");
+            match etcdctl(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)]).await {
+                Ok(_) => {
+                    info!("Found healthy peer {} (bootstrap leader {} not yet available)", name, preferred_leader);
+                    return Ok(name.clone());
+                }
+                Err(e) => {
+                    info!("Peer {} health check failed: {}", name, e);
+                }
+            }
+        }
+
+        info!(
+            "No healthy peers yet ({:?}/{:?})",
+            start.elapsed(),
+            config.peer_wait_timeout
+        );
 
         sleep(config.peer_check_interval).await;
     }
 
-    Err(anyhow!("Timeout waiting for bootstrap leader {}", leader))
+    Err(anyhow!("Timeout waiting for any healthy peer"))
 }
 
 /// Check if we have valid local etcd data (WAL files exist)
@@ -715,20 +702,23 @@ async fn main() -> Result<()> {
                 (config.initial_cluster.clone(), "existing".to_string(), false)
             }
         } else {
-            // Non-leader: wait for leader, join existing cluster as learner
+            // Non-leader: wait for any healthy peer, join existing cluster as learner
             let marker_exists = Path::new(&config.bootstrap_marker()).exists();
 
             if !marker_exists {
-                if let Err(e) = wait_for_leader(&config, &bootstrap_leader).await {
-                    warn!("Failed to reach bootstrap leader, retrying: {}", e);
-                    attempt += 1;
-                    sleep(config.retry_delay).await;
-                    continue;
-                }
+                let healthy_peer = match wait_for_any_healthy_peer(&config, &bootstrap_leader).await {
+                    Ok(peer) => peer,
+                    Err(e) => {
+                        warn!("Failed to find any healthy peer, retrying: {}", e);
+                        attempt += 1;
+                        sleep(config.retry_delay).await;
+                        continue;
+                    }
+                };
 
-                match add_self_to_cluster(&config, &bootstrap_leader).await {
+                match add_self_to_cluster(&config, &healthy_peer).await {
                     Ok(cluster) => {
-                        info!("Joining existing cluster as learner: {}", cluster);
+                        info!("Joining existing cluster as learner via {}: {}", healthy_peer, cluster);
                         (cluster, "existing".to_string(), true)
                     }
                     Err(e) => {
