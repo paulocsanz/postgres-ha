@@ -12,7 +12,7 @@ use common::{etcdctl, etcdctl_probe, Telemetry, TelemetryEvent};
 use std::path::Path;
 use tokio::fs;
 use tokio::time::sleep;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Check if any other peer has a healthy cluster (for recovery detection)
 pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Result<Option<String>> {
@@ -133,19 +133,7 @@ pub async fn monitor_and_mark_bootstrap(
     loop {
         sleep(std::time::Duration::from_secs(5)).await;
 
-        let is_healthy = match check_cluster_health(&config.initial_cluster).await {
-            Ok(healthy) => healthy,
-            Err(e) => {
-                // Config error is a bug - should have been caught at startup
-                error!(error = %e, "Config error in health check");
-                telemetry.send(TelemetryEvent::ComponentError {
-                    component: "etcd".to_string(),
-                    error: e.to_string(),
-                    context: "health check config parsing".to_string(),
-                });
-                false
-            }
-        };
+        let is_healthy = check_cluster_health(&config.initial_cluster).await?;
 
         if is_healthy {
             if joined_as_learner && !promoted {
