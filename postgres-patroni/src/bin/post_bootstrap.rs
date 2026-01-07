@@ -2,7 +2,7 @@
 //!
 //! Runs ONCE after PostgreSQL initialization on the primary node.
 //! IMPORTANT: Patroni runs this as a subprocess WITHOUT environment variables.
-//! We MUST read credentials from /tmp/patroni.yml
+//! We MUST read credentials from /etc/patroni/patroni.yml
 
 use anyhow::{Context, Result};
 use common::{init_logging, Telemetry, TelemetryEvent};

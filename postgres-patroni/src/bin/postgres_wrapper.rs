@@ -51,7 +51,7 @@ async fn check_and_generate_ssl(telemetry: &Telemetry) -> Result<()> {
     let is_valid = match is_valid_x509v3_cert(&server_crt) {
         Ok(valid) => valid,
         Err(e) => {
-            warn!(error = %e, "Failed to validate certificate, will regenerate");
+            warn!(error = %e, path = %server_crt, "Failed to validate certificate, will regenerate");
             false
         }
     };
@@ -69,7 +69,7 @@ async fn check_and_generate_ssl(telemetry: &Telemetry) -> Result<()> {
     let expires_soon = match cert_expires_within(&server_crt, 2592000) {
         Ok(expires) => expires,
         Err(e) => {
-            warn!(error = %e, "Failed to check certificate expiry, will regenerate");
+            warn!(error = %e, path = %server_crt, "Failed to check certificate expiry, will regenerate");
             true
         }
     };
@@ -195,7 +195,7 @@ async fn main() -> Result<()> {
                     run_init_ssl().await?;
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to validate certificate, regenerating...");
+                    warn!(error = %e, path = %server_crt, "Failed to validate certificate, regenerating...");
                     run_init_ssl().await?;
                 }
                 Ok(true) => {}
@@ -209,7 +209,7 @@ async fn main() -> Result<()> {
                     run_init_ssl().await?;
                 }
                 Err(e) => {
-                    warn!(error = %e, "Failed to check certificate expiry, regenerating...");
+                    warn!(error = %e, path = %server_crt, "Failed to check certificate expiry, regenerating...");
                     run_init_ssl().await?;
                 }
                 Ok(false) => {}

@@ -20,7 +20,7 @@ use tracing::info;
 
 async fn start_patroni() -> Result<tokio::process::Child> {
     let child = Command::new("patroni")
-        .arg("/tmp/patroni.yml")
+        .arg("/etc/patroni/patroni.yml")
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
@@ -68,7 +68,8 @@ async fn main() -> Result<()> {
 
     // Generate and write Patroni config
     let patroni_config = generate_patroni_config(&config);
-    fs::write("/tmp/patroni.yml", &patroni_config).context("Failed to write patroni.yml")?;
+    fs::create_dir_all("/etc/patroni").context("Failed to create /etc/patroni directory")?;
+    fs::write("/etc/patroni/patroni.yml", &patroni_config).context("Failed to write patroni.yml")?;
 
     info!(
         scope = %config.scope,

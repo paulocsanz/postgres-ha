@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 /// Path to the Patroni configuration file
-pub const PATRONI_CONFIG: &str = "/tmp/patroni.yml";
+pub const PATRONI_CONFIG: &str = "/etc/patroni/patroni.yml";
 
 /// Partial Patroni config - only fields we need for bootstrap
 #[derive(Deserialize)]
