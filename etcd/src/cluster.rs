@@ -4,7 +4,7 @@
 
 use crate::config::{get_my_peer_url, parse_initial_cluster, peer_to_client_url, Config};
 use anyhow::{anyhow, Context, Result};
-use common::{etcdctl, Telemetry, TelemetryEvent};
+use common::{etcdctl, etcdctl_probe, Telemetry, TelemetryEvent};
 use std::path::Path;
 use std::process::Stdio;
 use tokio::fs;
@@ -57,17 +57,12 @@ pub async fn get_member_list(endpoint: &str) -> Result<Vec<MemberInfo>> {
 
 /// Check cluster health via localhost or voting member
 pub async fn check_cluster_health(initial_cluster: &str) -> Result<bool> {
-    if etcdctl(&["endpoint", "health", "--endpoints=http://127.0.0.1:2379"])
-        .await
-        .is_ok()
-    {
+    if etcdctl_probe(&["endpoint", "health", "--endpoints=http://127.0.0.1:2379"]).await? {
         return Ok(true);
     }
 
     if let Some(endpoint) = get_voting_member_endpoint(initial_cluster).await? {
-        return Ok(etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)])
-            .await
-            .is_ok());
+        return etcdctl_probe(&["endpoint", "health", &format!("--endpoints={}", endpoint)]).await;
     }
 
     Ok(false)
@@ -79,10 +74,7 @@ pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Result<Option<
 
     for (_name, peer_url) in cluster.iter() {
         let client_endpoint = peer_to_client_url(peer_url);
-        if etcdctl(&["member", "list", &format!("--endpoints={}", client_endpoint)])
-            .await
-            .is_ok()
-        {
+        if etcdctl_probe(&["member", "list", &format!("--endpoints={}", client_endpoint)]).await? {
             return Ok(Some(client_endpoint));
         }
     }

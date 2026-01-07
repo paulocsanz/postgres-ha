@@ -78,6 +78,17 @@ pub async fn etcdctl(args: &[&str]) -> Result<String> {
     run_checked("etcdctl", args).await
 }
 
+/// Probe with etcdctl - returns Ok(true) if healthy, Ok(false) if unhealthy.
+///
+/// Unlike `etcdctl`, this distinguishes spawn errors (Err) from
+/// endpoint-unhealthy errors (Ok(false)).
+///
+/// Use this for health probing where you want to try multiple endpoints.
+pub async fn etcdctl_probe(args: &[&str]) -> Result<bool> {
+    let output = run("etcdctl", args).await?;
+    Ok(output.success)
+}
+
 /// Run an openssl command.
 ///
 /// # Example

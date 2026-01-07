@@ -8,7 +8,7 @@ use crate::cluster::{
 };
 use crate::config::{get_leader_endpoint, get_my_peer_url, parse_initial_cluster, peer_to_client_url, Config};
 use anyhow::{anyhow, Result};
-use common::{etcdctl, Telemetry, TelemetryEvent};
+use common::{etcdctl, etcdctl_probe, Telemetry, TelemetryEvent};
 use std::path::Path;
 use tokio::fs;
 use tokio::time::sleep;
@@ -27,9 +27,8 @@ pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Res
         let client_endpoint = peer_to_client_url(peer_url);
         info!(peer = %name, endpoint = %client_endpoint, "Checking peer");
 
-        if etcdctl(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
-            .await
-            .is_ok()
+        if etcdctl_probe(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
+            .await?
         {
             info!(peer = %name, "Found healthy cluster");
             return Ok(Some(client_endpoint));
@@ -52,15 +51,11 @@ pub async fn wait_for_any_healthy_peer(
     while start.elapsed() < config.peer_wait_timeout {
         // Try preferred leader first
         if let Some(endpoint) = get_leader_endpoint(&config.initial_cluster, preferred_leader)? {
-            match etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)]).await {
-                Ok(_) => {
-                    info!(leader = %preferred_leader, "Leader is healthy");
-                    return Ok((preferred_leader.to_string(), endpoint));
-                }
-                Err(e) => {
-                    info!(leader = %preferred_leader, error = %e, "Leader health check failed");
-                }
+            if etcdctl_probe(&["endpoint", "health", &format!("--endpoints={}", endpoint)]).await? {
+                info!(leader = %preferred_leader, "Leader is healthy");
+                return Ok((preferred_leader.to_string(), endpoint));
             }
+            info!(leader = %preferred_leader, "Leader health check failed");
         }
 
         // Try any other peer
@@ -70,17 +65,13 @@ pub async fn wait_for_any_healthy_peer(
             }
 
             let client_endpoint = peer_to_client_url(peer_url);
-            match etcdctl(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
-                .await
+            if etcdctl_probe(&["endpoint", "health", &format!("--endpoints={}", client_endpoint)])
+                .await?
             {
-                Ok(_) => {
-                    info!(peer = %name, "Found healthy peer");
-                    return Ok((name.clone(), client_endpoint));
-                }
-                Err(e) => {
-                    info!(peer = %name, error = %e, "Peer health check failed");
-                }
+                info!(peer = %name, "Found healthy peer");
+                return Ok((name.clone(), client_endpoint));
             }
+            info!(peer = %name, "Peer health check failed");
         }
 
         info!(
