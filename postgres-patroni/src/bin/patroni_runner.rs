@@ -77,8 +77,9 @@ async fn main() -> Result<()> {
     );
 
     // Prepare data directory
-    fs::create_dir_all(&config.data_dir).ok();
-    fs::set_permissions(&config.data_dir, std::fs::Permissions::from_mode(0o700)).ok();
+    fs::create_dir_all(&config.data_dir).context("Failed to create data directory")?;
+    fs::set_permissions(&config.data_dir, std::fs::Permissions::from_mode(0o700))
+        .context("Failed to set data directory permissions")?;
 
     // Clear PostgreSQL environment variables to avoid conflicts
     env::remove_var("PGPASSWORD");

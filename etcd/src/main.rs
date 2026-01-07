@@ -93,9 +93,12 @@ async fn main() -> Result<()> {
         let monitor_telemetry = telemetry.clone();
         let joined_as_learner = params.joined_as_learner;
         let monitor_handle = tokio::spawn(async move {
-            let _ =
+            if let Err(e) =
                 monitor_and_mark_bootstrap(&monitor_config, joined_as_learner, monitor_telemetry)
-                    .await;
+                    .await
+            {
+                error!(error = %e, "Monitor task failed");
+            }
         });
 
         let status = child.wait().await?;

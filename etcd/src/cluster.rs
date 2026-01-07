@@ -91,15 +91,14 @@ pub async fn get_voting_member_endpoint(initial_cluster: &str) -> Result<Option<
 }
 
 /// Get my member ID from etcd cluster
-pub async fn get_my_member_id(endpoint: &str, my_name: &str) -> Option<String> {
-    if let Ok(members) = get_member_list(endpoint).await {
-        for member in members {
-            if member.name == my_name {
-                return Some(member.id);
-            }
+pub async fn get_my_member_id(endpoint: &str, my_name: &str) -> Result<Option<String>> {
+    let members = get_member_list(endpoint).await?;
+    for member in members {
+        if member.name == my_name {
+            return Ok(Some(member.id));
         }
     }
-    None
+    Ok(None)
 }
 
 /// Check if this member is a learner
@@ -293,7 +292,7 @@ pub async fn promote_self(
         .ok_or_else(|| anyhow!("Could not find voting member endpoint"))?;
 
     let member_id = get_my_member_id(&endpoint, my_name)
-        .await
+        .await?
         .ok_or_else(|| anyhow!("Could not find my member ID"))?;
 
     // Fail-safe: if we can't determine learner status, don't attempt promotion
