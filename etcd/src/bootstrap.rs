@@ -122,6 +122,8 @@ pub async fn clean_stale_data(config: &Config, telemetry: &Telemetry) -> Result<
     Ok(())
 }
 
+const MAX_PROMOTION_RETRIES: u32 = 180; // 15 minutes at 5 second intervals
+
 /// Monitor and mark bootstrap complete
 pub async fn monitor_and_mark_bootstrap(
     config: &Config,
@@ -129,6 +131,7 @@ pub async fn monitor_and_mark_bootstrap(
     telemetry: Telemetry,
 ) -> Result<()> {
     let mut promoted = false;
+    let mut promotion_attempts = 0u32;
 
     loop {
         sleep(std::time::Duration::from_secs(5)).await;
@@ -143,7 +146,20 @@ pub async fn monitor_and_mark_bootstrap(
                         promoted = true;
                     }
                     Err(e) => {
-                        warn!(error = %e, "Promotion failed, will retry");
+                        promotion_attempts += 1;
+                        if promotion_attempts >= MAX_PROMOTION_RETRIES {
+                            return Err(anyhow!(
+                                "Failed to promote after {} attempts: {}",
+                                promotion_attempts,
+                                e
+                            ));
+                        }
+                        warn!(
+                            error = %e,
+                            attempt = promotion_attempts,
+                            max = MAX_PROMOTION_RETRIES,
+                            "Promotion failed, will retry"
+                        );
                     }
                 }
             }
