@@ -56,21 +56,21 @@ pub async fn get_member_list(endpoint: &str) -> Result<Vec<MemberInfo>> {
 }
 
 /// Check cluster health via localhost or voting member
-pub async fn check_cluster_health(initial_cluster: &str) -> bool {
+pub async fn check_cluster_health(initial_cluster: &str) -> Result<bool> {
     if etcdctl(&["endpoint", "health", "--endpoints=http://127.0.0.1:2379"])
         .await
         .is_ok()
     {
-        return true;
+        return Ok(true);
     }
 
-    if let Ok(Some(endpoint)) = get_voting_member_endpoint(initial_cluster).await {
-        return etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)])
+    if let Some(endpoint) = get_voting_member_endpoint(initial_cluster).await? {
+        return Ok(etcdctl(&["endpoint", "health", &format!("--endpoints={}", endpoint)])
             .await
-            .is_ok();
+            .is_ok());
     }
 
-    false
+    Ok(false)
 }
 
 /// Find a voting member endpoint
@@ -128,21 +128,31 @@ pub async fn remove_stale_self(
     for member in members {
         if member.name == my_name || member.peer_url == my_peer_url {
             info!(id = %member.id, "Removing stale member entry");
-            etcdctl(&[
+            match etcdctl(&[
                 "member",
                 "remove",
                 &member.id,
                 &format!("--endpoints={}", endpoint),
             ])
-            .await?;
-
-            telemetry.send(TelemetryEvent::EtcdStaleMemberRemoved {
-                node: my_name.to_string(),
-                removed_id: member.id.clone(),
-            });
-
-            info!("Stale member removed");
-            return Ok(());
+            .await
+            {
+                Ok(_) => {
+                    telemetry.send(TelemetryEvent::EtcdStaleMemberRemoved {
+                        node: my_name.to_string(),
+                        removed_id: member.id.clone(),
+                    });
+                    info!("Stale member removed");
+                    return Ok(());
+                }
+                Err(e) => {
+                    telemetry.send(TelemetryEvent::ComponentError {
+                        component: "etcd".to_string(),
+                        error: e.to_string(),
+                        context: format!("removing stale member {}", member.id),
+                    });
+                    return Err(e);
+                }
+            }
         }
     }
 
@@ -219,7 +229,7 @@ pub async fn add_self_to_cluster(
     }
 
     // Add as learner
-    let output = etcdctl(&[
+    let output = match etcdctl(&[
         "member",
         "add",
         &config.etcd_name,
@@ -227,7 +237,18 @@ pub async fn add_self_to_cluster(
         &format!("--peer-urls={}", my_peer_url),
         &format!("--endpoints={}", leader_endpoint),
     ])
-    .await?;
+    .await
+    {
+        Ok(output) => output,
+        Err(e) => {
+            telemetry.send(TelemetryEvent::ComponentError {
+                component: "etcd".to_string(),
+                error: e.to_string(),
+                context: format!("adding {} as learner", config.etcd_name),
+            });
+            return Err(e);
+        }
+    };
 
     info!(via = %leader, "Successfully added as learner");
 
@@ -291,6 +312,11 @@ pub async fn promote_self(
                 info!("Already a voting member");
                 Ok(())
             } else {
+                telemetry.send(TelemetryEvent::ComponentError {
+                    component: "etcd".to_string(),
+                    error: e.to_string(),
+                    context: format!("promoting {} to voting member", my_name),
+                });
                 Err(e)
             }
         }

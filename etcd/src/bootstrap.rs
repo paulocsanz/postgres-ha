@@ -12,7 +12,7 @@ use common::{etcdctl, Telemetry, TelemetryEvent};
 use std::path::Path;
 use tokio::fs;
 use tokio::time::sleep;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// Check if any other peer has a healthy cluster (for recovery detection)
 pub async fn check_existing_cluster(initial_cluster: &str, my_name: &str) -> Result<Option<String>> {
@@ -142,7 +142,21 @@ pub async fn monitor_and_mark_bootstrap(
     loop {
         sleep(std::time::Duration::from_secs(5)).await;
 
-        if check_cluster_health(&config.initial_cluster).await {
+        let is_healthy = match check_cluster_health(&config.initial_cluster).await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                // Config error is a bug - should have been caught at startup
+                error!(error = %e, "Config error in health check");
+                telemetry.send(TelemetryEvent::ComponentError {
+                    component: "etcd".to_string(),
+                    error: e.to_string(),
+                    context: "health check config parsing".to_string(),
+                });
+                false
+            }
+        };
+
+        if is_healthy {
             if joined_as_learner && !promoted {
                 info!("Healthy, attempting promotion");
                 match promote_self(&config.initial_cluster, &config.etcd_name, &telemetry).await {
@@ -201,7 +215,9 @@ pub async fn bootstrap_as_leader(
         let my_peer_url = get_my_peer_url(&config.initial_cluster, &config.etcd_name)?
             .ok_or_else(|| anyhow!("Could not find my peer URL in ETCD_INITIAL_CLUSTER"))?;
 
-        let _ = remove_stale_self(&existing_endpoint, &config.etcd_name, &my_peer_url, telemetry).await;
+        if let Err(e) = remove_stale_self(&existing_endpoint, &config.etcd_name, &my_peer_url, telemetry).await {
+            warn!(error = %e, "Failed to remove stale self, continuing anyway");
+        }
 
         let output = etcdctl(&[
             "member",
