@@ -195,7 +195,21 @@ pub async fn add_self_to_cluster(
                 remove_stale_self(leader_endpoint, &config.etcd_name, &my_peer_url, telemetry).await?;
 
                 // Clean partial data
-                let _ = clear_directory(Path::new(&config.data_dir)).await;
+                match clear_directory(Path::new(&config.data_dir)).await {
+                    Ok(()) => {
+                        telemetry.send(TelemetryEvent::EtcdDataCleared {
+                            node: config.etcd_name.clone(),
+                            reason: "no local data but registered as member".to_string(),
+                        });
+                    }
+                    Err(e) => {
+                        telemetry.send(TelemetryEvent::ComponentError {
+                            component: "etcd".to_string(),
+                            error: e.to_string(),
+                            context: "clearing partial data".to_string(),
+                        });
+                    }
+                }
                 break;
             } else {
                 info!("Already a member with local data");

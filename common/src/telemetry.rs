@@ -77,6 +77,9 @@ pub enum TelemetryEvent {
     /// Stale member entry removed
     EtcdStaleMemberRemoved { node: String, removed_id: String },
 
+    /// Data directory was cleared
+    EtcdDataCleared { node: String, reason: String },
+
     /// Entering recovery mode
     EtcdRecoveryMode { node: String, reason: String },
 
@@ -123,6 +126,7 @@ impl TelemetryEvent {
             Self::EtcdNodeJoined { .. } => "ETCD_NODE_JOINED",
             Self::EtcdNodePromoted { .. } => "ETCD_NODE_PROMOTED",
             Self::EtcdStaleMemberRemoved { .. } => "ETCD_STALE_MEMBER_REMOVED",
+            Self::EtcdDataCleared { .. } => "ETCD_DATA_CLEARED",
             Self::EtcdRecoveryMode { .. } => "ETCD_RECOVERY_MODE",
             Self::EtcdStartupFailed { .. } => "ETCD_STARTUP_FAILED",
             Self::HaproxyStarted { .. } => "HAPROXY_STARTED",
@@ -191,6 +195,9 @@ impl TelemetryEvent {
             }
             Self::EtcdStaleMemberRemoved { node, removed_id } => {
                 format!("etcd {} removed stale member {}", node, removed_id)
+            }
+            Self::EtcdDataCleared { node, reason } => {
+                format!("etcd {} data cleared: {}", node, reason)
             }
             Self::EtcdRecoveryMode { node, reason } => {
                 format!("etcd {} recovery mode: {}", node, reason)

@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         .await
         .context("Failed to create data directory")?;
 
-    clean_stale_data(&config).await?;
+    clean_stale_data(&config, &telemetry).await?;
 
     let bootstrap_leader = get_bootstrap_leader(&config.initial_cluster)?;
     let is_leader = config.etcd_name == bootstrap_leader;
@@ -113,7 +113,21 @@ async fn main() -> Result<()> {
         let marker_exists = Path::new(&config.bootstrap_marker()).exists();
         if !marker_exists && has_local_data(&config.data_dir).await {
             info!("Bootstrap incomplete - cleaning data");
-            let _ = clear_directory(Path::new(&config.data_dir)).await;
+            match clear_directory(Path::new(&config.data_dir)).await {
+                Ok(()) => {
+                    telemetry.send(TelemetryEvent::EtcdDataCleared {
+                        node: config.etcd_name.clone(),
+                        reason: "incomplete bootstrap after etcd exit".to_string(),
+                    });
+                }
+                Err(e) => {
+                    telemetry.send(TelemetryEvent::ComponentError {
+                        component: "etcd".to_string(),
+                        error: e.to_string(),
+                        context: "clearing data after incomplete bootstrap".to_string(),
+                    });
+                }
+            }
         } else if marker_exists {
             info!("Bootstrap complete - preserving data");
         }

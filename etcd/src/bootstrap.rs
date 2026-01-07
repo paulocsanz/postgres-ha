@@ -96,7 +96,7 @@ pub async fn wait_for_any_healthy_peer(
 }
 
 /// Clean stale data on startup (only if no bootstrap marker)
-pub async fn clean_stale_data(config: &Config) -> Result<()> {
+pub async fn clean_stale_data(config: &Config, telemetry: &Telemetry) -> Result<()> {
     let data_path = Path::new(&config.data_dir);
     if !data_path.exists() {
         return Ok(());
@@ -107,8 +107,23 @@ pub async fn clean_stale_data(config: &Config) -> Result<()> {
 
     if has_data && !marker_exists {
         info!("Found stale data from incomplete bootstrap - cleaning");
-        clear_directory(data_path).await?;
-        info!("Data directory cleaned");
+        match clear_directory(data_path).await {
+            Ok(()) => {
+                telemetry.send(TelemetryEvent::EtcdDataCleared {
+                    node: config.etcd_name.clone(),
+                    reason: "stale data from incomplete bootstrap".to_string(),
+                });
+                info!("Data directory cleaned");
+            }
+            Err(e) => {
+                telemetry.send(TelemetryEvent::ComponentError {
+                    component: "etcd".to_string(),
+                    error: e.to_string(),
+                    context: "clearing stale data on startup".to_string(),
+                });
+                return Err(e);
+            }
+        }
     } else if has_data {
         info!("Found data with bootstrap marker - preserving");
     }
