@@ -68,7 +68,11 @@ pub(crate) fn parse_initial_cluster(cluster: &str) -> Result<HashMap<String, Str
 /// Get bootstrap leader (alphabetically first node name)
 pub(crate) fn get_bootstrap_leader(initial_cluster: &str) -> Result<String> {
     let cluster = parse_initial_cluster(initial_cluster)?;
-    Ok(cluster.keys().min().cloned().unwrap_or_default())
+    cluster
+        .keys()
+        .min()
+        .cloned()
+        .ok_or_else(|| anyhow!("ETCD_INITIAL_CLUSTER is empty"))
 }
 
 /// Get leader's client endpoint (port 2379)
