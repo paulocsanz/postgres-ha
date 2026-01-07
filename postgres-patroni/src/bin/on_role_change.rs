@@ -3,38 +3,44 @@
 //! Called by Patroni with: $1=action $2=role $3=scope
 //! Sends telemetry to Railway backboard for monitoring/alerting
 
-use common::{ConfigExt, Telemetry, TelemetryEvent};
+use common::{Telemetry, TelemetryEvent};
 use std::env;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
-    let action = args.get(1).map(|s| s.as_str()).unwrap_or("");
-    let role = args.get(2).map(|s| s.as_str()).unwrap_or("");
-    let scope = args.get(3).map(|s| s.as_str()).unwrap_or("");
+    let action = args.get(1);
+    let role = args.get(2);
+    let scope = args.get(3);
 
     // Only proceed for role changes
-    if action != "on_role_change" {
+    if action.map(|s| s.as_str()) != Some("on_role_change") {
         std::process::exit(0);
     }
 
-    let node_name = String::env_or("PATRONI_NAME", "unknown");
+    let node_name = env::var("PATRONI_NAME").ok();
     let telemetry = Telemetry::from_env("postgres-ha");
 
-    let event = match role {
-        "master" | "primary" => TelemetryEvent::PostgresFailover {
-            node: node_name,
-            new_role: role.to_string(),
+    let event = match (role.map(|s| s.as_str()), scope, node_name) {
+        (Some("master" | "primary"), Some(scope), Some(node)) => TelemetryEvent::PostgresFailover {
+            node,
+            new_role: role.unwrap().to_string(),
             scope: scope.to_string(),
         },
-        "replica" | "standby" => TelemetryEvent::PostgresRejoined {
-            node: node_name,
-            role: role.to_string(),
+        (Some("replica" | "standby"), Some(scope), Some(node)) => TelemetryEvent::PostgresRejoined {
+            node,
+            role: role.unwrap().to_string(),
             scope: scope.to_string(),
         },
         _ => TelemetryEvent::ComponentError {
             component: "patroni".to_string(),
-            error: format!("Unknown role: {}", role),
+            error: format!(
+                "Unexpected on_role_change state: role={:?}, scope={:?}, node={:?}, args={:?}",
+                role,
+                scope,
+                env::var("PATRONI_NAME"),
+                args
+            ),
             context: "on_role_change".to_string(),
         },
     };

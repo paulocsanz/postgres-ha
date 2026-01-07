@@ -89,16 +89,15 @@ async fn main() -> Result<()> {
         info!(pid = ?child.id(), "etcd started");
 
         // Spawn monitoring task
+        // Note: monitor_and_mark_bootstrap handles its own errors by calling exit(1)
+        // directly, which ensures we crash and recover on fatal errors (promotion
+        // exhaustion, health check errors). On restart, clean_stale_data() will
+        // clear incomplete bootstrap data.
         let monitor_config = Config::from_env()?;
         let monitor_telemetry = telemetry.clone();
         let joined_as_learner = params.joined_as_learner;
         let monitor_handle = tokio::spawn(async move {
-            if let Err(e) =
-                monitor_and_mark_bootstrap(&monitor_config, joined_as_learner, monitor_telemetry)
-                    .await
-            {
-                error!(error = %e, "Monitor task failed");
-            }
+            monitor_and_mark_bootstrap(&monitor_config, joined_as_learner, monitor_telemetry).await
         });
 
         let status = child.wait().await?;

@@ -91,6 +91,14 @@ pub enum TelemetryEvent {
         error: String,
     },
 
+    /// Learner promotion failed after exhausting retries
+    EtcdPromotionFailed {
+        node: String,
+        attempts: u32,
+        max_attempts: u32,
+        error: String,
+    },
+
     // === HAProxy Events ===
     /// HAProxy started successfully
     HaproxyStarted { node_count: usize, single_node_mode: bool },
@@ -129,6 +137,7 @@ impl TelemetryEvent {
             Self::EtcdDataCleared { .. } => "ETCD_DATA_CLEARED",
             Self::EtcdRecoveryMode { .. } => "ETCD_RECOVERY_MODE",
             Self::EtcdStartupFailed { .. } => "ETCD_STARTUP_FAILED",
+            Self::EtcdPromotionFailed { .. } => "ETCD_PROMOTION_FAILED",
             Self::HaproxyStarted { .. } => "HAPROXY_STARTED",
             Self::HaproxyConfigGenerating { .. } => "HAPROXY_CONFIG_GENERATING",
             Self::ComponentStarted { .. } => "COMPONENT_STARTED",
@@ -211,6 +220,17 @@ impl TelemetryEvent {
                 format!(
                     "etcd {} startup failed ({}/{}): {}",
                     node, attempt, max_attempts, error
+                )
+            }
+            Self::EtcdPromotionFailed {
+                node,
+                attempts,
+                max_attempts,
+                error,
+            } => {
+                format!(
+                    "etcd {} promotion failed after {}/{} attempts: {}",
+                    node, attempts, max_attempts, error
                 )
             }
             Self::HaproxyStarted {

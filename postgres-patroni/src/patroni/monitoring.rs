@@ -33,13 +33,17 @@ pub async fn run_monitoring_loop(
     let mut sigint = signal(SignalKind::interrupt())?;
 
     // Wait for Patroni to initialize
+    // We wait up to max_startup_timeout for Patroni to become healthy.
+    // If it doesn't become healthy within that time, we exit(1) to trigger
+    // container restart and recovery.
     info!(
-        seconds = config.startup_grace_period,
+        grace_period = config.startup_grace_period,
+        max_timeout = config.max_startup_timeout,
         "Waiting for Patroni to initialize"
     );
 
     let mut startup_elapsed = 0u64;
-    while startup_elapsed < config.startup_grace_period {
+    loop {
         tokio::select! {
             _ = sigterm.recv() => {
                 info!("Received SIGTERM during startup");
@@ -67,6 +71,33 @@ pub async fn run_monitoring_loop(
                 if check_health(config.health_check_timeout).await {
                     info!(elapsed = startup_elapsed, "Patroni healthy, starting monitoring");
                     break;
+                }
+
+                // Check if we've exceeded max startup timeout
+                if startup_elapsed >= config.max_startup_timeout {
+                    error!(
+                        elapsed = startup_elapsed,
+                        max = config.max_startup_timeout,
+                        "Patroni failed to become healthy within timeout - exiting for recovery"
+                    );
+                    telemetry.send(TelemetryEvent::HealthCheckFailed {
+                        node: config.name.clone(),
+                        consecutive_failures: (startup_elapsed / 5) as u32,
+                        max_failures: (config.max_startup_timeout / 5) as u32,
+                    });
+                    let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGTERM);
+                    sleep(Duration::from_secs(2)).await;
+                    let _ = kill(Pid::from_raw(patroni_pid as i32), Signal::SIGKILL);
+                    std::process::exit(1);
+                }
+
+                // Log progress after grace period
+                if startup_elapsed >= config.startup_grace_period && startup_elapsed % 30 == 0 {
+                    warn!(
+                        elapsed = startup_elapsed,
+                        max = config.max_startup_timeout,
+                        "Still waiting for Patroni to become healthy"
+                    );
                 }
             }
         }

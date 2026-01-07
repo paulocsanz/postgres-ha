@@ -125,18 +125,36 @@ pub async fn clean_stale_data(config: &Config, telemetry: &Telemetry) -> Result<
 const MAX_PROMOTION_RETRIES: u32 = 180; // 15 minutes at 5 second intervals
 
 /// Monitor and mark bootstrap complete
+///
+/// IMPORTANT: This function runs in a spawned task. On fatal errors (health check
+/// failure or promotion exhaustion), it calls exit(1) directly to crash the process.
+/// This triggers container restart, and clean_stale_data() will clear incomplete
+/// bootstrap data (no marker = data gets wiped) ensuring clean recovery.
 pub async fn monitor_and_mark_bootstrap(
     config: &Config,
     joined_as_learner: bool,
     telemetry: Telemetry,
-) -> Result<()> {
+) {
     let mut promoted = false;
     let mut promotion_attempts = 0u32;
 
     loop {
         sleep(std::time::Duration::from_secs(5)).await;
 
-        let is_healthy = check_cluster_health(&config.initial_cluster).await?;
+        let is_healthy = match check_cluster_health(&config.initial_cluster).await {
+            Ok(healthy) => healthy,
+            Err(e) => {
+                // Health check error (not just unhealthy) - crash to trigger recovery
+                // On restart, clean_stale_data() will clear data since no bootstrap marker
+                telemetry.send(TelemetryEvent::ComponentError {
+                    component: "etcd".to_string(),
+                    error: e.to_string(),
+                    context: "health check failed with error".to_string(),
+                });
+                tracing::error!(error = %e, "Health check error - exiting for recovery");
+                std::process::exit(1);
+            }
+        };
 
         if is_healthy {
             if joined_as_learner && !promoted {
@@ -148,11 +166,20 @@ pub async fn monitor_and_mark_bootstrap(
                     Err(e) => {
                         promotion_attempts += 1;
                         if promotion_attempts >= MAX_PROMOTION_RETRIES {
-                            return Err(anyhow!(
-                                "Failed to promote after {} attempts: {}",
-                                promotion_attempts,
-                                e
-                            ));
+                            // Promotion exhausted - crash to trigger recovery
+                            // On restart, clean_stale_data() will clear data since no bootstrap marker
+                            telemetry.send(TelemetryEvent::EtcdPromotionFailed {
+                                node: config.etcd_name.clone(),
+                                attempts: promotion_attempts,
+                                max_attempts: MAX_PROMOTION_RETRIES,
+                                error: e.to_string(),
+                            });
+                            tracing::error!(
+                                attempts = promotion_attempts,
+                                error = %e,
+                                "Promotion exhausted - exiting for recovery"
+                            );
+                            std::process::exit(1);
                         }
                         warn!(
                             error = %e,
@@ -166,7 +193,15 @@ pub async fn monitor_and_mark_bootstrap(
 
             let marker_path = config.bootstrap_marker();
             if !Path::new(&marker_path).exists() && (!joined_as_learner || promoted) {
-                fs::write(&marker_path, "1").await?;
+                if let Err(e) = fs::write(&marker_path, "1").await {
+                    telemetry.send(TelemetryEvent::ComponentError {
+                        component: "etcd".to_string(),
+                        error: e.to_string(),
+                        context: "writing bootstrap marker".to_string(),
+                    });
+                    tracing::error!(error = %e, "Failed to write bootstrap marker - exiting");
+                    std::process::exit(1);
+                }
                 info!("Bootstrap marked complete");
             }
         }
