@@ -16,7 +16,7 @@ use common::{init_logging, Telemetry, TelemetryEvent};
 use std::path::Path;
 use tokio::fs;
 use tokio::time::sleep;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use bootstrap::{
     bootstrap_as_follower, bootstrap_as_leader, clean_stale_data, monitor_and_mark_bootstrap,
@@ -110,8 +110,16 @@ async fn main() -> Result<()> {
         info!(exit_code = ?exit_code, "etcd exited");
 
         // Handle incomplete bootstrap
+        // Fail-safe: if we can't determine data state, assume there IS data (don't wipe)
         let marker_exists = Path::new(&config.bootstrap_marker()).exists();
-        if !marker_exists && has_local_data(&config.data_dir).await {
+        let has_data = match has_local_data(&config.data_dir).await {
+            Ok(has) => has,
+            Err(e) => {
+                warn!(error = %e, "Can't check local data, assuming it exists (fail-safe)");
+                true
+            }
+        };
+        if !marker_exists && has_data {
             info!("Bootstrap incomplete - cleaning data");
             match clear_directory(Path::new(&config.data_dir)).await {
                 Ok(()) => {

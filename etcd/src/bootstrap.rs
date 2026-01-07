@@ -102,7 +102,14 @@ pub async fn clean_stale_data(config: &Config, telemetry: &Telemetry) -> Result<
         return Ok(());
     }
 
-    let has_data = has_local_data(&config.data_dir).await;
+    // Fail-safe: if we can't determine data state, assume there IS data (don't wipe)
+    let has_data = match has_local_data(&config.data_dir).await {
+        Ok(has) => has,
+        Err(e) => {
+            warn!(error = %e, "Can't check local data, assuming it exists (fail-safe)");
+            true
+        }
+    };
     let marker_exists = Path::new(&config.bootstrap_marker()).exists();
 
     if has_data && !marker_exists {

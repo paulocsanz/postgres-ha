@@ -103,15 +103,16 @@ pub async fn get_my_member_id(endpoint: &str, my_name: &str) -> Option<String> {
 }
 
 /// Check if this member is a learner
-pub async fn is_learner(endpoint: &str, my_name: &str) -> bool {
-    if let Ok(members) = get_member_list(endpoint).await {
-        for member in members {
-            if member.name == my_name {
-                return member.is_learner;
-            }
+/// Returns Err if we can't determine state
+pub async fn is_learner(endpoint: &str, my_name: &str) -> Result<bool> {
+    let members = get_member_list(endpoint).await?;
+    for member in members {
+        if member.name == my_name {
+            return Ok(member.is_learner);
         }
     }
-    false
+    // Not found in member list - not a learner (or not a member at all)
+    Ok(false)
 }
 
 /// Remove stale member entry for this node
@@ -200,7 +201,17 @@ pub async fn add_self_to_cluster(
     let members = get_member_list(leader_endpoint).await?;
     for member in &members {
         if member.name == config.etcd_name || member.peer_url == my_peer_url {
-            if !has_local_data(&config.data_dir).await {
+            // Fail-safe: only remove if we're SURE there's no local data
+            let has_data = match has_local_data(&config.data_dir).await {
+                Ok(has) => has,
+                Err(e) => {
+                    // Can't determine state - assume there IS data to be safe
+                    warn!(error = %e, "Can't check local data, assuming it exists");
+                    true
+                }
+            };
+
+            if !has_data {
                 warn!("Registered as member but no local data - removing stale entry");
                 remove_stale_self(leader_endpoint, &config.etcd_name, &my_peer_url, telemetry).await?;
 
@@ -285,7 +296,16 @@ pub async fn promote_self(
         .await
         .ok_or_else(|| anyhow!("Could not find my member ID"))?;
 
-    if !is_learner(&endpoint, my_name).await {
+    // Fail-safe: if we can't determine learner status, don't attempt promotion
+    let learner = match is_learner(&endpoint, my_name).await {
+        Ok(is) => is,
+        Err(e) => {
+            warn!(error = %e, "Can't determine learner status, skipping promotion");
+            return Err(e);
+        }
+    };
+
+    if !learner {
         info!("Already a voting member");
         return Ok(());
     }
@@ -324,14 +344,25 @@ pub async fn promote_self(
 }
 
 /// Check if we have valid local etcd data
-pub async fn has_local_data(data_dir: &str) -> bool {
+/// Returns Err if we can't determine state (fail-safe: don't assume no data)
+pub async fn has_local_data(data_dir: &str) -> Result<bool> {
     let wal_dir = format!("{}/member/wal", data_dir);
-    if let Ok(mut entries) = fs::read_dir(&wal_dir).await {
-        if entries.next_entry().await.ok().flatten().is_some() {
-            return true;
-        }
+
+    // If WAL dir doesn't exist, that's a clear "no data" case
+    if !Path::new(&wal_dir).exists() {
+        return Ok(false);
     }
-    false
+
+    // If WAL dir exists but we can't read it, that's an error - don't assume no data
+    let mut entries = fs::read_dir(&wal_dir)
+        .await
+        .context("Failed to read WAL directory")?;
+
+    match entries.next_entry().await {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => Ok(false),
+        Err(e) => Err(anyhow::anyhow!("Failed to read WAL directory entries: {}", e)),
+    }
 }
 
 /// Clear all contents of a directory without removing the directory itself
