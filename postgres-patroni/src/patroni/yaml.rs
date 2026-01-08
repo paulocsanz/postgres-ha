@@ -26,7 +26,7 @@ bootstrap:
     loop_wait: {loop_wait}
     retry_timeout: {retry_timeout}
     maximum_lag_on_failover: 1048576
-    failsafe_mode: true
+    failsafe_mode: false
     postgresql:
       use_pg_rewind: true
       use_slots: true
@@ -37,6 +37,7 @@ bootstrap:
         max_replication_slots: 10
         max_connections: 200
         password_encryption: scram-sha-256
+        shared_preload_libraries: pg_stat_statements
 
   initdb:
     - encoding: UTF8

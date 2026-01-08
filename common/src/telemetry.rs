@@ -60,6 +60,10 @@ pub enum TelemetryEvent {
         exit_code: Option<i32>,
     },
 
+    /// DCS (etcd) unavailable - cluster has no leader
+    /// This is a critical event: all nodes demoted, no writes possible
+    DcsUnavailable { node: String, scope: String },
+
     // === etcd Events ===
     /// etcd cluster bootstrap initiated
     EtcdBootstrap {
@@ -130,6 +134,7 @@ impl TelemetryEvent {
             Self::SslRenewed { .. } => "POSTGRES_HA_SSL_RENEWED",
             Self::HealthCheckFailed { .. } => "POSTGRES_HA_HEALTH_CHECK_FAILED",
             Self::ProcessDied { .. } => "POSTGRES_HA_PROCESS_DIED",
+            Self::DcsUnavailable { .. } => "POSTGRES_HA_DCS_UNAVAILABLE",
             Self::EtcdBootstrap { .. } => "ETCD_CLUSTER_BOOTSTRAP",
             Self::EtcdNodeJoined { .. } => "ETCD_NODE_JOINED",
             Self::EtcdNodePromoted { .. } => "ETCD_NODE_PROMOTED",
@@ -184,6 +189,12 @@ impl TelemetryEvent {
                 format!(
                     "{} died on {} (exit {:?})",
                     process, node, exit_code
+                )
+            }
+            Self::DcsUnavailable { node, scope } => {
+                format!(
+                    "DCS unavailable - {} demoted, cluster {} has no leader (write outage)",
+                    node, scope
                 )
             }
             Self::EtcdBootstrap {

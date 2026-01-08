@@ -5,17 +5,18 @@
 //! TCP/HTTP health checks via Patroni.
 
 mod config;
+mod monitoring;
 mod nodes;
 mod template;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use common::{init_logging, Telemetry, TelemetryEvent};
 use std::fs;
-use std::os::unix::process::CommandExt;
 use std::process::Command;
 use tracing::info;
 
 use config::Config;
+use monitoring::run_monitoring_loop;
 use nodes::parse_nodes;
 use template::generate_config;
 
@@ -60,8 +61,11 @@ fn main() -> Result<()> {
 
     info!("Starting HAProxy...");
 
-    // exec haproxy (replaces current process)
-    let err = Command::new("haproxy").arg("-f").arg(CONFIG_FILE).exec();
+    let child = Command::new("haproxy")
+        .arg("-f")
+        .arg(CONFIG_FILE)
+        .spawn()
+        .context("Failed to spawn haproxy")?;
 
-    Err(anyhow!("Failed to exec haproxy: {}", err))
+    run_monitoring_loop(child, &telemetry, single_node_mode)
 }
