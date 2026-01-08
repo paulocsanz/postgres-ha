@@ -4,9 +4,7 @@
 set -e
 
 # Set up needed variables
-# Store certs at volume root so they persist across pgdata rebuilds
-VOLUME_ROOT="${RAILWAY_VOLUME_MOUNT_PATH:-/var/lib/postgresql/data}"
-SSL_DIR="$VOLUME_ROOT/certs"
+SSL_DIR="/var/lib/postgresql/data/certs"
 
 SSL_SERVER_CRT="$SSL_DIR/server.crt"
 SSL_SERVER_KEY="$SSL_DIR/server.key"
@@ -50,14 +48,15 @@ openssl x509 -req -in "$SSL_SERVER_CSR" -extfile "$SSL_V3_EXT" -extensions v3_re
 
 chown postgres:postgres "$SSL_SERVER_CRT"
 
-# PostgreSQL configuration, enable ssl and set paths to certificate files
-# Only modify postgresql.conf if it exists
-# In Patroni mode, postgresql.conf doesn't exist yet - Patroni handles SSL via its own config
-if [ -f "$POSTGRES_CONF_FILE" ]; then
+# In Patroni mode, SSL is configured via patroni.yml, not postgresql.conf
+# Only modify postgresql.conf for standalone (non-Patroni) PostgreSQL
+if [ "${PATRONI_ENABLED:-false}" != "true" ]; then
     cat >> "$POSTGRES_CONF_FILE" <<EOF
 ssl = on
 ssl_cert_file = '$SSL_SERVER_CRT'
 ssl_key_file = '$SSL_SERVER_KEY'
 ssl_ca_file = '$SSL_ROOT_CRT'
 EOF
+else
+    echo "Patroni mode: SSL certs generated, Patroni will configure PostgreSQL SSL settings"
 fi

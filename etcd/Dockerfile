@@ -1,32 +1,28 @@
 ARG ETCD_VERSION=3.6.6
-# Use alpine to get shell utilities
-FROM alpine:latest AS tools
 
+# ============================================================
+# Rust builder stage: Compile etcd-entrypoint binary (musl)
+# ============================================================
+FROM rust:1.83-alpine AS rust-builder
+
+RUN apk add --no-cache musl-dev
+
+WORKDIR /build
+
+# Copy Cargo files first for dependency caching
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+
+# Build statically linked release binary
+RUN cargo build --release
+
+# ============================================================
+# Final stage: etcd with Rust entrypoint
+# ============================================================
 FROM quay.io/coreos/etcd:v${ETCD_VERSION}
 
-# Copy shell and utilities from alpine for our entrypoint script
-COPY --from=tools /bin/sh /bin/sh
-COPY --from=tools /bin/mkdir /bin/mkdir
-COPY --from=tools /bin/chmod /bin/chmod
-COPY --from=tools /bin/sleep /bin/sleep
-COPY --from=tools /bin/kill /bin/kill
-COPY --from=tools /bin/date /bin/date
-COPY --from=tools /usr/bin/seq /usr/bin/seq
-COPY --from=tools /usr/bin/nc /usr/bin/nc
-COPY --from=tools /bin/grep /bin/grep
-COPY --from=tools /bin/sed /bin/sed
-COPY --from=tools /usr/bin/cut /usr/bin/cut
-COPY --from=tools /usr/bin/tr /usr/bin/tr
-COPY --from=tools /usr/bin/head /usr/bin/head
-COPY --from=tools /usr/bin/sort /usr/bin/sort
-COPY --from=tools /lib/ld-musl-*.so.1 /lib/
-COPY --from=tools /lib/libc.musl-*.so.1 /lib/
-
-# Copy entrypoint script
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-RUN mkdir -p /var/lib/etcd && chmod 700 /var/lib/etcd
+# Copy Rust binary (statically linked, no glibc needed)
+COPY --from=rust-builder --chmod=755 /build/target/release/etcd-entrypoint /entrypoint
 
 ENV ETCD_DATA_DIR=/var/lib/etcd
 # Enable gRPC gateway for Patroni etcd3 client compatibility
@@ -41,4 +37,4 @@ EXPOSE 2379 2380
 HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=3 \
   CMD etcdctl endpoint health --endpoints=http://127.0.0.1:2379 || exit 1
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/entrypoint"]

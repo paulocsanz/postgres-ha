@@ -10,6 +10,7 @@ on:
   push:
     branches:
       - main
+      - paulo/rust
     paths:
       - 'postgres-patroni/**'
       - 'etcd/**'
@@ -25,6 +26,8 @@ env:
   ETCD_VERSION: "3.6.6"
   HAPROXY_VERSION: "3.2"
   ALPINE_VERSION: "3.19"
+  # Beta suffix for non-main branches
+  BETA_SUFFIX: ${{ github.ref_name != 'main' && '-rust-beta' || '' }}
 
 jobs:
   build-postgres-patroni:
@@ -76,11 +79,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ matrix.postgres_major }}
-            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ matrix.postgres_major }}-${{ steps.sha.outputs.short }}
-            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ steps.pg_version.outputs.minor_version }}
-            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ steps.pg_version.outputs.minor_version }}-${{ steps.sha.outputs.short }}
-            ${{ matrix.postgres_major == env.LATEST_POSTGRES_MAJOR && format('{0}/postgres-patroni:latest', env.IMAGE_PREFIX) || '' }}
+            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ matrix.postgres_major }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ matrix.postgres_major }}-${{ steps.sha.outputs.short }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ steps.pg_version.outputs.minor_version }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/postgres-patroni:${{ steps.pg_version.outputs.minor_version }}-${{ steps.sha.outputs.short }}${{ env.BETA_SUFFIX }}
+            ${{ matrix.postgres_major == env.LATEST_POSTGRES_MAJOR && format('{0}/postgres-patroni:latest{1}', env.IMAGE_PREFIX, env.BETA_SUFFIX) || '' }}
           cache-from: type=gha,scope=pg${{ matrix.postgres_major }}
           cache-to: type=gha,mode=max,scope=pg${{ matrix.postgres_major }}
 
@@ -124,11 +127,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/etcd:latest
-            ${{ env.IMAGE_PREFIX }}/etcd:${{ env.ETCD_VERSION }}
-            ${{ env.IMAGE_PREFIX }}/etcd:${{ steps.meta.outputs.minor }}
-            ${{ env.IMAGE_PREFIX }}/etcd:${{ steps.meta.outputs.major }}
-            ${{ env.IMAGE_PREFIX }}/etcd:${{ env.ETCD_VERSION }}-${{ steps.meta.outputs.sha }}
+            ${{ env.IMAGE_PREFIX }}/etcd:latest${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/etcd:${{ env.ETCD_VERSION }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/etcd:${{ steps.meta.outputs.minor }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/etcd:${{ steps.meta.outputs.major }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/etcd:${{ env.ETCD_VERSION }}-${{ steps.meta.outputs.sha }}${{ env.BETA_SUFFIX }}
           cache-from: type=gha,scope=etcd
           cache-to: type=gha,mode=max,scope=etcd
 
@@ -170,9 +173,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.IMAGE_PREFIX }}/haproxy:latest
-            ${{ env.IMAGE_PREFIX }}/haproxy:${{ env.HAPROXY_VERSION }}
-            ${{ env.IMAGE_PREFIX }}/haproxy:${{ steps.meta.outputs.major }}
-            ${{ env.IMAGE_PREFIX }}/haproxy:${{ env.HAPROXY_VERSION }}-${{ steps.meta.outputs.sha }}
+            ${{ env.IMAGE_PREFIX }}/haproxy:latest${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/haproxy:${{ env.HAPROXY_VERSION }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/haproxy:${{ steps.meta.outputs.major }}${{ env.BETA_SUFFIX }}
+            ${{ env.IMAGE_PREFIX }}/haproxy:${{ env.HAPROXY_VERSION }}-${{ steps.meta.outputs.sha }}${{ env.BETA_SUFFIX }}
           cache-from: type=gha,scope=haproxy
           cache-to: type=gha,mode=max,scope=haproxy

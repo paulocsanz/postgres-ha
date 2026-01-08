@@ -1,0 +1,34 @@
+[package]
+name = "postgres-patroni"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "postgres-wrapper"
+path = "src/bin/postgres_wrapper.rs"
+
+[[bin]]
+name = "patroni-runner"
+path = "src/bin/patroni_runner.rs"
+
+[[bin]]
+name = "post-bootstrap"
+path = "src/bin/post_bootstrap.rs"
+
+[[bin]]
+name = "on-role-change"
+path = "src/bin/on_role_change.rs"
+
+[dependencies]
+common = { path = "../common" }
+anyhow.workspace = true
+nix.workspace = true
+openssl.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+tokio.workspace = true
+tracing.workspace = true

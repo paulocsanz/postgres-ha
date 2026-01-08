@@ -1,0 +1,14 @@
+[package]
+name = "etcd-entrypoint"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "etcd-entrypoint"
+path = "src/main.rs"
+
+[dependencies]
+common = { path = "../common" }
+anyhow.workspace = true
+tokio.workspace = true
+tracing.workspace = true

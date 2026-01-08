@@ -12,6 +12,20 @@ ARG POSTGRES_VERSION=17
 ARG BUILD_VARIANT=slim
 
 # ============================================================
+# Rust builder stage: Compile all Rust binaries
+# ============================================================
+FROM rust:1.83-bookworm AS rust-builder
+
+WORKDIR /build
+
+# Copy Cargo files first for dependency caching
+COPY Cargo.toml Cargo.lock* ./
+COPY src ./src
+
+# Build release binaries
+RUN cargo build --release
+
+# ============================================================
 # Base stage: Common to both slim and HA
 # ============================================================
 FROM postgres:${POSTGRES_VERSION} AS base
@@ -29,15 +43,16 @@ RUN echo "postgres ALL=(root) NOPASSWD: /usr/bin/mkdir, /bin/chown, /bin/chmod, 
 # ============================================================
 FROM base AS slim
 
+# Copy SSL init script and Rust wrapper
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --chmod=755 wrapper.sh /usr/local/bin/wrapper.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/postgres-wrapper
 
 EXPOSE 5432
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD pg_isready -U ${POSTGRES_USER:-postgres} || exit 1
 
-ENTRYPOINT ["wrapper.sh"]
+ENTRYPOINT ["postgres-wrapper"]
 CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]
 
 # ============================================================
@@ -71,12 +86,12 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN mkdir -p /home/postgres /var/run/postgresql \
     && chown -R postgres:postgres /home/postgres /var/run/postgresql
 
-# Copy all scripts
+# Copy SSL init script and Rust binaries
 COPY --chmod=755 init-ssl.sh /docker-entrypoint-initdb.d/init-ssl.sh
-COPY --chmod=755 wrapper.sh /usr/local/bin/wrapper.sh
-COPY --chmod=755 post_bootstrap.sh /post_bootstrap.sh
-COPY --chmod=755 patroni-runner.sh /usr/local/bin/patroni-runner.sh
-COPY --chmod=755 on_role_change.sh /on_role_change.sh
+COPY --from=rust-builder --chmod=755 /build/target/release/postgres-wrapper /usr/local/bin/postgres-wrapper
+COPY --from=rust-builder --chmod=755 /build/target/release/post-bootstrap /usr/local/bin/post-bootstrap
+COPY --from=rust-builder --chmod=755 /build/target/release/patroni-runner /usr/local/bin/patroni-runner
+COPY --from=rust-builder --chmod=755 /build/target/release/on-role-change /usr/local/bin/on-role-change
 
 EXPOSE 5432 8008
 
@@ -88,5 +103,5 @@ HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --retries=2 \
             pg_isready -U ${POSTGRES_USER:-postgres} || exit 1; \
         fi
 
-ENTRYPOINT ["wrapper.sh"]
+ENTRYPOINT ["postgres-wrapper"]
 CMD ["postgres", "-p", "5432", "-c", "listen_addresses=*"]
